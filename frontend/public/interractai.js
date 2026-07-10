@@ -2,11 +2,22 @@
   // Configuration
   // In a real environment, this should point to the production CDN/Server
   // For local testing, we assume the React app is running on localhost:3000
-  const isLocal = window.location.hostname === 'localhost' || 
-                  window.location.hostname === '127.0.0.1' || 
-                  window.location.hostname.startsWith('192.168.');
+  // Find the URL from which this script is loaded to dynamically resolve assets
+  let scriptUrl = 'https://interac-ai.web.app'; // Production fallback
+  const scriptEl = document.currentScript;
+  if (scriptEl && scriptEl.src) {
+    const urlObj = new URL(scriptEl.src);
+    scriptUrl = urlObj.origin;
+  } else {
+    const isLocal = window.location.hostname === 'localhost' || 
+                    window.location.hostname === '127.0.0.1' || 
+                    window.location.hostname.startsWith('192.168.');
+    if (isLocal) {
+      scriptUrl = `${window.location.protocol}//${window.location.host}`;
+    }
+  }
   
-  const BASE_URL = isLocal ? `${window.location.protocol}//${window.location.host}` : 'https://interac-ai.web.app';
+  const BASE_URL = scriptUrl;
 
   console.log('[InterractAI] Loader initialized. BASE_URL:', BASE_URL);
 

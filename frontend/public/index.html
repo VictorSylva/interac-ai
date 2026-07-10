@@ -43,6 +43,10 @@
 
 
     <!-- 3. Load and initialize Behavioral Analytics Tracker (Local) -->
+    <script>
+      // Inject correct API endpoint based on build environment variable
+      window.BA_ENDPOINT = "%REACT_APP_API_URL%/api/behavior-analytics/collect";
+    </script>
     <script src="/ba_tracker.js"></script>
     <script>
       // Behavioral Tracker Initialization
