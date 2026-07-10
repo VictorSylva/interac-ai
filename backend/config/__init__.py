@@ -48,7 +48,7 @@ def load_config():
     # Handle ALLOWED_ORIGINS list
     allowed_origins = os.getenv("ALLOWED_ORIGINS")
     if allowed_origins:
-        config_dict["ALLOWED_ORIGINS"] = [origin.strip() for origin in allowed_origins.split(",")]
+        config_dict["ALLOWED_ORIGINS"] = [origin.strip().rstrip("/") for origin in allowed_origins.split(",")]
     else:
         # Default fallback list
         config_dict["ALLOWED_ORIGINS"] = [
@@ -59,8 +59,11 @@ def load_config():
         
     # Dynamically append FRONTEND_URL to ALLOWED_ORIGINS to prevent CORS issues
     frontend_url = config_dict.get("FRONTEND_URL")
-    if frontend_url and frontend_url not in config_dict["ALLOWED_ORIGINS"]:
-        config_dict["ALLOWED_ORIGINS"].append(frontend_url)
+    if frontend_url:
+        frontend_url = frontend_url.strip().rstrip("/")
+        config_dict["FRONTEND_URL"] = frontend_url
+        if frontend_url not in config_dict["ALLOWED_ORIGINS"]:
+            config_dict["ALLOWED_ORIGINS"].append(frontend_url)
     # Handle simple boolean conversions if provided via env
     for bool_key in ["DEBUG", "ENABLE_DEV_TOOLS", "STRICT_PROD_MODE"]:
         val = os.getenv(bool_key)
