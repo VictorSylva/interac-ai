@@ -75,13 +75,12 @@ async def ensure_special_admin_account():
                 if u.business_id != special_bid:
                     logger.info(f"[Startup] Removing user {email} with incorrect business ID {u.business_id}")
                     old_bid = u.business_id
+                    
+                    # Run cleanups using direct SQL to avoid prematurely triggering session autoflush on pending entities
                     await session.execute(delete(BusinessSubscription).where(BusinessSubscription.business_id == old_bid))
                     await session.execute(delete(TokenWallet).where(TokenWallet.business_id == old_bid))
-                    await session.delete(u)
-                    
-                    old_biz = await session.get(Business, old_bid)
-                    if old_biz:
-                        await session.delete(old_biz)
+                    await session.execute(delete(User).where(User.business_id == old_bid))
+                    await session.execute(delete(Business).where(Business.id == old_bid))
                 else:
                     needs_creation = False
                     # Update password to Setecs@55 if not already matching
