@@ -1,0 +1,15 @@
+{
+  "business_id": "0bbd48c4-b066-435a-be3d-c095b55897c6",
+  "user_id": "unknown",
+  "provider": "openrouter",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a senior sales strategist. Provide actionable, high-conversion follow-up advice."
+    },
+    {
+      "role": "user",
+      "content": "\n        Analyze this stalled lead and recommend a specific follow-up action.\n        NAME: Victor\n        STATUS: contacted\n        NOTES: No notes available\n        VALUE: $Unknown\n        \n        Keep the recommendation concise (max 2 sentences). Focus on converting them to the next stage.\n        "
+    }
+  ]
+}

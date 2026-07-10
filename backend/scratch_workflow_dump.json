@@ -1,0 +1,44 @@
+{
+  "id": "e7dc57dd-23be-461c-9cd2-b537db6dc75b",
+  "name": "Booking Confirmation",
+  "trigger_type": "appointment_booked",
+  "trigger_config": null,
+  "definition": null,
+  "nodes": [
+    {
+      "id": "9b22ab49-dff4-4ad0-8358-825f334f99bc",
+      "type": "start",
+      "label": "Booking Received",
+      "config": {},
+      "platform_meta": {
+        "position": {
+          "x": 100,
+          "y": 100
+        }
+      }
+    },
+    {
+      "id": "b06f5988-4d0a-4065-9611-c6ed4ddda0f8",
+      "type": "action",
+      "label": "Send Confirmation Email",
+      "config": {
+        "body": "<h2>Booking Confirmed!</h2><p>Hello,</p><p>We have successfully scheduled your call for <strong>{{appointment_time}}</strong>.</p><p>You can add this to your calendar using the link below:</p><p><a href=\"{{calendar_link}}\" style=\"background: #001F3F; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;\">Add to Google Calendar</a></p><p>We look forward to speaking with you!</p>",
+        "subject": "Confirmed: Your Call with {{business_name}}",
+        "action_type": "send_email"
+      },
+      "platform_meta": {
+        "position": {
+          "x": 100,
+          "y": 300
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "b4ce0c8c-e965-4b92-81d5-487bf3de422c",
+      "source": "9b22ab49-dff4-4ad0-8358-825f334f99bc",
+      "target": "b06f5988-4d0a-4065-9611-c6ed4ddda0f8"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package inference;
+
+service InferenceService {
+  rpc ProcessStreamFrame (InferenceRequest) returns (InferenceResponse);
+  rpc GetPerformanceMetrics (MetricsRequest) returns (MetricsResponse);
+}
+
+message InferenceRequest {
+  bytes frame_bytes = 1;      // Raw JPEG encoded bytes
+  string model_name = 2;      // Model name or registry version (e.g. yolo11n.pt)
+  float confidence = 3;       // Confidence threshold
+  repeated int32 target_classes = 4; // Target class filters
+  int32 camera_id = 5;
+}
+
+message Detection {
+  repeated int32 box = 1;     // [x1, y1, x2, y2]
+  int32 class_id = 2;
+  string class_name = 3;
+  float confidence = 4;
+  int32 track_id = 5;         // Stateful tracking ID (-1 if none)
+}
+
+message InferenceResponse {
+  repeated Detection detections = 1;
+  int64 latency_ms = 2;
+}
+
+message MetricsRequest {}
+
+message MetricsResponse {
+  double uptime_seconds = 1;
+  int64 processed_frames = 2;
+  int64 dropped_frames = 3;
+  double average_latency_ms = 4;
+  double cpu_percent = 5;
+  int64 ram_usage_bytes = 6;
+  double gpu_percent = 7;
+  int64 vram_usage_bytes = 8;
+}

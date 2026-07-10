@@ -1,0 +1,30 @@
+node_modules/
+backend/venv/
+venv/
+.env
+.env.dev
+.env.*
+__pycache__/
+*.pyc
+.DS_Store
+dist/
+build/
+coverage/
+
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.txt
+
+# AI Model weights and engine files
+*.pt
+*.onnx
+*.engine
+
+# Cache and metadata directories
+.firebase/
+.yarn/
+.yarn-cache/
+node_modules/
+

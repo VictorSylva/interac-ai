@@ -1,0 +1,63 @@
+services:
+  # 1. Backend Web Service (FastAPI)
+  - type: web
+    name: interact-backend
+    runtime: docker
+    rootDir: backend
+    plan: free # or starter
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: interact-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: interact-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: ENVIRONMENT
+        value: production
+
+      # AI Provider (OpenRouter)
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: "deepseek/deepseek-chat"
+
+      # Email (SMTP)
+      - key: SMTP_HOST
+        value: "smtp.gmail.com"
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+
+      # WhatsApp
+      - key: WHATSAPP_API_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+
+  # 2. Redis Service (Free Tier Experiment)
+  - type: redis
+    name: interact-redis
+    plan: free
+    ipAllowList: [] # Internal only
+
+  # 3. Worker Service (Commented out to start with Free Tier)
+  # - type: worker
+  #   ...
+
+databases:
+  # 4. PostgreSQL Database
+  - name: interact-db
+    plan: free # 90 days, then upgrade
+    ipAllowList: [] # Allow all internal

@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: surveillance_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-surveillance_secure_pass_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-surveillance}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-surveillance}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: surveillance_redis
+    restart: always
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: surveillance_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+      - POSTGRES_SERVER=db
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=${REDIS_DB}
+      - FIRST_SUPERUSER_EMAIL=${FIRST_SUPERUSER_EMAIL}
+      - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - shared_surveillance_data:/var/lib/surveillance
+    # Override standard CMD with reload flag for local hot reloading
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  camera-services:
+    build:
+      context: ../camera-services
+      dockerfile: Dockerfile
+    container_name: surveillance_camera_services
+    restart: always
+    ports:
+      - "8001:8001"
+    environment:
+      - BACKEND_API_URL=http://backend:8000/api/v1
+      - ADMIN_EMAIL=${FIRST_SUPERUSER_EMAIL}
+      - ADMIN_PASSWORD=${FIRST_SUPERUSER_PASSWORD}
+      - STORAGE_DIR=/var/lib/surveillance
+    depends_on:
+      - backend
+    volumes:
+      - ../camera-services:/app
+      - ../ai-engine/app:/app/ai_engine
+      - shared_surveillance_data:/var/lib/surveillance
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+volumes:
+  postgres_data:
+  redis_data:
+  shared_surveillance_data:
