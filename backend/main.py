@@ -255,6 +255,8 @@ async def debug_config():
     return {
         "env": config.ENV,
         "database_url_host": masked_db,
+        "frontend_url": config.FRONTEND_URL,
+        "allowed_origins": config.ALLOWED_ORIGINS,
         "current_time": datetime.utcnow().isoformat()
     }
 
