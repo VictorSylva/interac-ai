@@ -16,6 +16,7 @@ coverage/
 *.db-wal
 *.log
 *.txt
+!requirements.txt
 
 # AI Model weights and engine files
 *.pt

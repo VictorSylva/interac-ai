@@ -3,8 +3,7 @@ version: "3.8"
 services:
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
     container_name: interact_backend
     command: sh -c "until python -c 'import socket; s=socket.socket(); s.connect((\"postgres\", 5432))'; do echo waiting for db; sleep 2; done; echo db port open, waiting extra 5s for startup...; sleep 5; uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     volumes:
@@ -24,8 +23,7 @@ services:
 
   celery_worker:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
     container_name: interact_worker
     command: celery -A celery_app worker --loglevel=info
     volumes:
