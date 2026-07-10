@@ -27,8 +27,11 @@ def validate_db_env():
 validate_db_env()
 
 # Ensure the URL is correctly formatted for asyncpg if provided via env
-if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+if DATABASE_URL:
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # Use NullPool to avoid issues with Celery prefork pool and separate event loops
 engine = create_async_engine(DATABASE_URL, echo=config.DEBUG, poolclass=NullPool)
