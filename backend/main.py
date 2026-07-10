@@ -49,6 +49,114 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def ensure_special_admin_account():
+    logger.info("[Startup] Verifying special admin account exists and has the correct business ID...")
+    try:
+        from database.session import AsyncSessionLocal
+        from services.auth_service import get_password_hash
+        from sqlalchemy import select, delete
+        from database.models.general import User, Business, BusinessSettings
+        from database.models.billing import BusinessSubscription, TokenWallet
+        import uuid
+        
+        async with AsyncSessionLocal() as session:
+            email = "interacai.int@gmail.com"
+            special_bid = "0bbd48c4-b066-435a-be3d-c095b55897c6"
+            pwd_hash = get_password_hash("Setecs@55")
+            
+            # 1. Clean up duplicate or old accounts with different business IDs
+            stmt = select(User).where(User.email == email)
+            res = await session.execute(stmt)
+            users = res.scalars().all()
+            
+            needs_creation = True
+            for u in users:
+                if u.business_id != special_bid:
+                    logger.info(f"[Startup] Removing user {email} with incorrect business ID {u.business_id}")
+                    old_bid = u.business_id
+                    await session.execute(delete(BusinessSubscription).where(BusinessSubscription.business_id == old_bid))
+                    await session.execute(delete(TokenWallet).where(TokenWallet.business_id == old_bid))
+                    await session.delete(u)
+                    
+                    old_biz = await session.get(Business, old_bid)
+                    if old_biz:
+                        await session.delete(old_biz)
+                else:
+                    needs_creation = False
+                    # Update password to Setecs@55 if not already matching
+                    u.password_hash = pwd_hash
+                    u.role = "owner"
+                    session.add(u)
+            
+            # 2. Make sure the Business itself exists
+            biz = await session.get(Business, special_bid)
+            if not biz:
+                biz = Business(id=special_bid, name="interacAi")
+                session.add(biz)
+                logger.info(f"[Startup] Created special Business: {special_bid}")
+            
+            # 3. Make sure the Subscription exists and is Active
+            sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == special_bid)
+            sub_res = await session.execute(sub_stmt)
+            sub = sub_res.scalar_one_or_none()
+            if not sub:
+                sub = BusinessSubscription(
+                    business_id=special_bid,
+                    plan_id="enterprise",
+                    status="active"
+                )
+                session.add(sub)
+                logger.info("[Startup] Created Enterprise subscription for special business")
+            else:
+                sub.plan_id = "enterprise"
+                sub.status = "active"
+                session.add(sub)
+                
+            # 4. Make sure the User exists
+            if needs_creation:
+                new_user = User(
+                    id=str(uuid.uuid4()),
+                    business_id=special_bid,
+                    email=email,
+                    password_hash=pwd_hash,
+                    role="owner"
+                )
+                session.add(new_user)
+                logger.info(f"[Startup] Created special User: {email} with business: {special_bid}")
+                
+            # 5. Make sure the TokenWallet exists
+            wallet = await session.get(TokenWallet, special_bid)
+            if not wallet:
+                wallet = TokenWallet(
+                    business_id=special_bid,
+                    sub_balance=1000000,
+                    payg_balance=0
+                )
+                session.add(wallet)
+            else:
+                wallet.sub_balance = 1000000
+                session.add(wallet)
+                
+            # 6. Make sure default Settings exist
+            settings_stmt = select(BusinessSettings).where(BusinessSettings.business_id == special_bid)
+            settings_res = await session.execute(settings_stmt)
+            settings = settings_res.scalar_one_or_none()
+            if not settings:
+                settings = BusinessSettings(
+                    business_id=special_bid,
+                    description="Default settings for special business",
+                    tone="professional"
+                )
+                session.add(settings)
+                
+            await session.commit()
+            logger.info("[Startup] Special admin account setup verified successfully.")
+            
+    except Exception as e:
+        logger.error(f"[Startup] Failed to verify special admin account: {e}", exc_info=True)
+
+
 from services.socket_manager import socket_manager
 from fastapi import WebSocket, WebSocketDisconnect
 
