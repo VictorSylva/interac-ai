@@ -79,6 +79,10 @@ async def ensure_special_admin_account():
                     # Run cleanups using direct SQL to avoid prematurely triggering session autoflush on pending entities
                     await session.execute(delete(BusinessSubscription).where(BusinessSubscription.business_id == old_bid))
                     await session.execute(delete(TokenWallet).where(TokenWallet.business_id == old_bid))
+                    
+                    # Clean up dependent push subscriptions to avoid foreign key violations
+                    await session.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid").bindparams(uid=u.id))
+                    
                     await session.execute(delete(User).where(User.business_id == old_bid))
                     await session.execute(delete(Business).where(Business.id == old_bid))
                 else:
