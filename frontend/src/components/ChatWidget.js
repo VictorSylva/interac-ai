@@ -208,7 +208,7 @@ export default function ChatWidget(props) {
             )}
 
             {/* Content Area */}
-            <div className={`flex-1 p-4 bg-gray-50 flex flex-col gap-4 overflow-y-auto overscroll-contain ${isHero && messages.length === 0 ? 'hidden' : 'min-h-[150px]'}`}>
+            <div className={`flex-1 p-4 bg-gray-50 flex flex-col gap-4 overflow-y-auto overscroll-contain chat-messages-container ${isHero && messages.length === 0 ? 'hidden' : 'min-h-[150px]'}`}>
                   {messages.length === 0 && (
                     <div className="text-center text-sm text-grey-500 mt-4">
                       👋 Hi! How can I help you today?
