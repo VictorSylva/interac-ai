@@ -65,39 +65,35 @@ async def ensure_special_admin_account():
             special_bid = "0bbd48c4-b066-435a-be3d-c095b55897c6"
             pwd_hash = get_password_hash("Setecs@55")
             
-            # 1. Clean up duplicate or old accounts with different business IDs
+            # Make sure the Business itself exists first (so foreign key constraint is satisfied)
+            biz = await session.get(Business, special_bid)
+            if not biz:
+                biz = Business(id=special_bid, name="interacAi")
+                session.add(biz)
+                await session.flush()
+                logger.info(f"[Startup] Created special Business: {special_bid}")
+            
+            # 1. Ensure the user exists, is linked to special_bid, and has the correct password/role
             stmt = select(User).where(User.email == email)
             res = await session.execute(stmt)
             users = res.scalars().all()
             
             needs_creation = True
-            for u in users:
-                if u.business_id != special_bid:
-                    logger.info(f"[Startup] Removing user {email} with incorrect business ID {u.business_id}")
-                    old_bid = u.business_id
-                    
-                    # Run cleanups using direct SQL to avoid prematurely triggering session autoflush on pending entities
-                    await session.execute(delete(BusinessSubscription).where(BusinessSubscription.business_id == old_bid))
-                    await session.execute(delete(TokenWallet).where(TokenWallet.business_id == old_bid))
-                    
-                    # Clean up dependent push subscriptions to avoid foreign key violations
-                    await session.execute(text("DELETE FROM push_subscriptions WHERE user_id = :uid").bindparams(uid=u.id))
-                    
-                    await session.execute(delete(User).where(User.business_id == old_bid))
-                    await session.execute(delete(Business).where(Business.id == old_bid))
-                else:
-                    needs_creation = False
-                    # Update password to Setecs@55 if not already matching
-                    u.password_hash = pwd_hash
-                    u.role = "owner"
-                    session.add(u)
+            if users:
+                # Keep the first user, update its business association, password, and role
+                primary_user = users[0]
+                primary_user.business_id = special_bid
+                primary_user.password_hash = pwd_hash
+                primary_user.role = "owner"
+                session.add(primary_user)
+                needs_creation = False
+                
+                # Clean up any duplicate user records if they exist
+                for duplicate_user in users[1:]:
+                    await session.delete(duplicate_user)
+                logger.info(f"[Startup] Verified and updated existing user {email} to business {special_bid}")
             
-            # 2. Make sure the Business itself exists
-            biz = await session.get(Business, special_bid)
-            if not biz:
-                biz = Business(id=special_bid, name="interacAi")
-                session.add(biz)
-                logger.info(f"[Startup] Created special Business: {special_bid}")
+
             
             # 3. Make sure the Subscription exists and is Active
             sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == special_bid)
