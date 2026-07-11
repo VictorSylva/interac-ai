@@ -100,6 +100,10 @@ class CloudGPUProvider(BaseInferenceProvider):
                 # Dynamically try importing compiled gRPC bindings if they exist
                 # This ensures we don't crash if proto files are compiled in container but not locally.
                 try:
+                    import sys
+                    bindings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grpc_bindings")
+                    if bindings_path not in sys.path:
+                        sys.path.append(bindings_path)
                     from hal.providers.grpc_bindings import inference_pb2, inference_pb2_grpc
                     stub = inference_pb2_grpc.InferenceServiceStub(self.channel)
                     request = inference_pb2.InferenceRequest(
