@@ -5,11 +5,11 @@
   "messages": [
     {
       "role": "system",
-      "content": "You are a senior sales strategist. Provide actionable, high-conversion follow-up advice."
+      "content": "You are a conversion rate optimization (CRO) expert."
     },
     {
       "role": "user",
-      "content": "\n        Analyze this stalled lead and recommend a specific follow-up action.\n        NAME: Victor\n        STATUS: contacted\n        NOTES: No notes available\n        VALUE: $Unknown\n        \n        Keep the recommendation concise (max 2 sentences). Focus on converting them to the next stage.\n        "
+      "content": "\n        Analyze this funnel bottleneck and suggest one specific optimization.\n        PATH: /dashboard/leads\n        DROP-OFF COUNT: 1\n        \n        Suggest a specific UI or content change to reduce friction at this stage. (Max 2 sentences)\n        "
     }
   ]
 }

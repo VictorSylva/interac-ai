@@ -332,6 +332,47 @@ async def paystack_webhook(request: Request, x_paystack_signature: str = Header(
                 }
                 logger.info(f"Triggering payment_received workflow for business {order.business_id}")
                 await workflow_engine.trigger_workflow(order.business_id, "payment_received", trigger_data)
+                
+                # Emit observation to argus-core
+                try:
+                    from services.argus_core_client import emit_observation
+                    import asyncio
+                    asyncio.create_task(
+                        emit_observation(
+                            source_system="payments",
+                            entity_type="invoice",
+                            entity_id=order.id,
+                            confidence=1.0,
+                            metadata={
+                                "amount": float(order.amount) if order.amount else 0.0,
+                                "currency": order.currency,
+                                "customer_email": order.customer_email,
+                                "customer_phone": order.customer_phone,
+                                "business_id": order.business_id,
+                                "reference": reference,
+                                "offer_id": offer.id,
+                                "offer_title": offer.title
+                            },
+                            relationships=[
+                                {
+                                    "target_type": "customer",
+                                    "target_id": order.customer_phone or order.customer_email or "unknown",
+                                    "type": "LINKED_TO",
+                                    "confidence": 1.0
+                                },
+                                {
+                                    "target_type": "business",
+                                    "target_id": order.business_id,
+                                    "type": "OWNED_BY",
+                                    "confidence": 1.0
+                                }
+                            ],
+                            context=f"Payment received: {order.currency} {order.amount} from {order.customer_email} for {offer.title}",
+                            severity="info"
+                        )
+                    )
+                except Exception as obs_err:
+                    logger.warning(f"Error initiating observation emission for sales payment: {obs_err}")
             
     return {"status": "success"}
     

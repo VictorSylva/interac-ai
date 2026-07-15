@@ -109,6 +109,30 @@ services:
       - ./inference-service:/app
     restart: always
 
+  argus_core:
+    build:
+      context: ./argus-core
+    container_name: interact_argus_core
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    volumes:
+      - ./argus-core:/app
+    ports:
+      - "8003:8003"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - POSTGRES_SERVER=postgres
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=interact_db
+      - POSTGRES_PORT=5432
+      - OPENROUTER_API_KEY=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
+      - OPENROUTER_MODEL=deepseek/deepseek-chat
+    depends_on:
+      - redis
+      - postgres
+
   api_gateway:
     image: nginx:alpine
     container_name: interact_api_gateway
@@ -121,6 +145,7 @@ services:
       - argus_os
       - argus_perception
       - inference_service
+      - argus_core
 
 volumes:
   postgres_data:

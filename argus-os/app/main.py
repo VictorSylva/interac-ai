@@ -46,11 +46,12 @@ async def lifespan(app: FastAPI):
         if not admin_user:
             logger.info(f"Admin user not found. Seeding default superuser: {admin_email}")
             from app.core.security import get_password_hash
+            import uuid
             db_admin = User(
+                id=str(uuid.uuid4()),
                 email=admin_email,
-                hashed_password=get_password_hash(admin_password),
-                is_active=True,
-                is_superuser=True,
+                password_hash=get_password_hash(admin_password),
+                role="owner"
             )
             db.add(db_admin)
             await db.commit()

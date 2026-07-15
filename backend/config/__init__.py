@@ -40,7 +40,7 @@ def load_config():
             "GEMINI_API_KEY", "GEMINI_MODEL", "WHATSAPP_VERIFY_TOKEN",
             "WHATSAPP_API_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "SECRET_KEY",
             "PAYSTACK_SECRET_KEY", "PAYSTACK_PUBLIC_KEY", "FRONTEND_URL",
-            "COST_PER_TOKEN"
+            "COST_PER_TOKEN", "ARGUS_CORE_URL"
         ]
         if os.getenv(key) is not None
     }

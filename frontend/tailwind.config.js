@@ -30,6 +30,10 @@ module.exports = {
           medium: "#e2e8f0",
         },
         white: "#ffffff",
+        text: {
+          DEFAULT: "#1e293b",
+          light: "#64748b",
+        },
       },
       fontFamily: {
         sans: ["Inter", "sans-serif"],

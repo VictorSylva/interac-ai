@@ -12,15 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import config
 
 async def run_simulation():
-    backend_url = os.getenv("BACKEND_URL")
-    if not backend_url:
-        if config.ENV == "staging":
-            backend_url = "https://interacai-backend-staging.onrender.com"
-        elif config.ENV == "production":
-            backend_url = "https://api.interacai.com"
-        else:
-            backend_url = f"http://localhost:{os.getenv('PORT', '8000')}"
-            
+    backend_url = f"http://localhost:{os.getenv('PORT', '8000')}"
     print(f"============================================================")
     print(f"  INTERACAI PAYSTACK BILLING WEBHOOK SIMULATION TOOL        ")
     print(f"============================================================")

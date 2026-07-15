@@ -18,6 +18,11 @@ ID_CACHE = {}
 CACHE_TTL = 10 # 10 seconds
 
 # --- Utilities ---
+import re
+UUID_REGEX = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+RESOLVED_IDS_CACHE = {}  # Format: {input_id: (timestamp, resolved_id)}
+RESOLVED_IDS_TTL = 300  # 5 minutes cache TTL
 
 async def resolve_business_id(input_id: str) -> str:
     """
@@ -27,12 +32,27 @@ async def resolve_business_id(input_id: str) -> str:
     if not input_id:
         return input_id
         
+    clean_id = input_id.strip()
+    if UUID_REGEX.match(clean_id):
+        return clean_id
+
+    now = time.time()
+    if clean_id in RESOLVED_IDS_CACHE:
+        ts, cached_bid = RESOLVED_IDS_CACHE[clean_id]
+        if now - ts < RESOLVED_IDS_TTL:
+            return cached_bid
+            
+    resolved_id = await _resolve_business_id_db(clean_id)
+    RESOLVED_IDS_CACHE[clean_id] = (now, resolved_id)
+    return resolved_id
+
+async def _resolve_business_id_db(input_id: str) -> str:
     async with AsyncSessionLocal() as session:
         try:
             # 1. Try by Email (Primary User Link)
             if "@" in input_id:
                 logger.info(f"Resolving business_id for EMAIL: {input_id}")
-                stmt = select(User.business_id).where(User.email.ilike(input_id.strip()))
+                stmt = select(User.business_id).where(User.email.ilike(input_id))
                 result = await session.execute(stmt)
                 bid = result.scalar_one_or_none()
                 if bid:
@@ -40,14 +60,14 @@ async def resolve_business_id(input_id: str) -> str:
                     return bid
             
             # 2. Try by Business Name (Case-insensitive)
-            stmt = select(Business.id).where(Business.name.ilike(input_id.strip()))
+            stmt = select(Business.id).where(Business.name.ilike(input_id))
             result = await session.execute(stmt)
             bid = result.scalar_one_or_none()
             if bid:
                 return bid
 
             # 3. Try by exact Business ID matches
-            stmt = select(Business.id).where(Business.id == input_id.strip())
+            stmt = select(Business.id).where(Business.id == input_id)
             result = await session.execute(stmt)
             bid = result.scalar_one_or_none()
             if bid:
@@ -59,10 +79,10 @@ async def resolve_business_id(input_id: str) -> str:
     # --- 4. ULTIMATE FALLBACK: Self-Healing for Stale/Legacy UUIDs ---
     async with AsyncSessionLocal() as session:
         try:
-            clean_id = input_id.lower().strip() if input_id else ""
+            clean_id_lower = input_id.lower()
             
             # Check if this input_id is actually a business_id in the User table directly
-            stmt = select(User.business_id).where(or_(User.business_id == input_id, User.business_id == clean_id)).limit(1)
+            stmt = select(User.business_id).where(or_(User.business_id == input_id, User.business_id == clean_id_lower)).limit(1)
             res = await session.execute(stmt)
             bid = res.scalar()
             if bid:
@@ -71,7 +91,8 @@ async def resolve_business_id(input_id: str) -> str:
             pass
             
     logger.warning(f"Could not resolve business_id for {input_id}. Returning original.")
-    return input_id.lower() if input_id and "-" in input_id else input_id
+    return input_id.lower() if "-" in input_id else input_id
+
 
 async def get_all_possible_business_ids(business_id: str) -> list:
     """Returns a list of all IDs that could refer to this business (Email + UUID)."""
@@ -172,6 +193,38 @@ async def store_message(business_id: str, user_id: str, text: str, sender: str, 
             
             await session.commit()
             logger.info(f"Stored message for {convo_id}")
+            
+            # Emit observation to argus-core
+            try:
+                from services.argus_core_client import emit_observation
+                import asyncio
+                asyncio.create_task(
+                    emit_observation(
+                        source_system=platform,
+                        entity_type="customer",
+                        entity_id=user_id,
+                        confidence=1.0,
+                        metadata={
+                            "message_text": text,
+                            "sender": sender,
+                            "intent": intent,
+                            "sentiment": sentiment,
+                            "business_id": business_id
+                        },
+                        relationships=[
+                            {
+                                "target_type": "business",
+                                "target_id": business_id,
+                                "type": "COMMUNICATED_WITH",
+                                "confidence": 1.0
+                            }
+                        ],
+                        context=f"Message received via {platform} from {sender}: {text[:100]}",
+                        severity="info"
+                    )
+                )
+            except Exception as obs_err:
+                logger.warning(f"Error initiating observation emission: {obs_err}")
             
             # Broadcast to real-time dashboard
             from services.socket_manager import socket_manager

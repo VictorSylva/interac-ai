@@ -33,8 +33,24 @@ if DATABASE_URL:
     elif DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# Use NullPool to avoid issues with Celery prefork pool and separate event loops
-engine = create_async_engine(DATABASE_URL, echo=config.DEBUG, poolclass=NullPool)
+import sys
+from sqlalchemy.pool import NullPool
+
+# Use NullPool to avoid issues with Celery prefork pool and separate event loops.
+# For FastAPI/Uvicorn, use standard connection pooling to reuse database connections.
+is_celery_worker = any("celery" in arg for arg in sys.argv)
+
+if is_celery_worker:
+    engine = create_async_engine(DATABASE_URL, echo=config.DEBUG, poolclass=NullPool)
+else:
+    engine = create_async_engine(
+        DATABASE_URL,
+        echo=config.DEBUG,
+        pool_size=20,
+        max_overflow=10,
+        pool_recycle=1800
+    )
+
 
 AsyncSessionLocal = sessionmaker(
     engine,

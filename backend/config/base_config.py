@@ -14,6 +14,7 @@ class BaseConfig(BaseModel):
     # Database Settings
     DATABASE_URL: str
     REDIS_URL: Optional[str] = None
+    ARGUS_CORE_URL: str = Field(default="http://argus_core:8003")
     
     # AI Provider Settings
     OPENROUTER_API_KEY: Optional[str] = None

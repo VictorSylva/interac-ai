@@ -3,7 +3,7 @@ from app.models.base import Base
 
 class User(Base):
     """Database model representing a platform user."""
-    __tablename__ = "users"
+    __tablename__ = "argus_users"
 
     id = Column(String, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)

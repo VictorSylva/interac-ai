@@ -3,11 +3,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { 
   Shield, AlertTriangle, Info, Video, Activity, Clock, 
   ShieldAlert, ShieldCheck, CheckCircle2, MapPin, 
-  Volume2, VolumeX, RefreshCw, Bot, Network, Settings 
+  Volume2, VolumeX, RefreshCw, Bot, Network, Settings, Clipboard 
 } from 'lucide-react';
 
 import IntelligenceView from '../components/IntelligenceView';
 import AICopilot from '../components/AICopilot';
+import TimelineViewer from '../components/TimelineViewer';
+import InvestigationsWorkspace from '../components/InvestigationsWorkspace';
 import CameraManagerModal from '../components/CameraManagerModal';
 import ZoneConfiguratorModal from '../components/ZoneConfiguratorModal';
 
@@ -266,6 +268,24 @@ export default function SecurityIntelligence() {
             >
               <Bot size={16} />
               AI Co-Pilot
+            </button>
+            <button 
+              onClick={() => setCurrentTab('timeline')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                currentTab === 'timeline' ? 'bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Clock size={16} />
+              Audit Timeline
+            </button>
+            <button 
+              onClick={() => setCurrentTab('investigations')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
+                currentTab === 'investigations' ? 'bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Clipboard size={16} />
+              Investigations
             </button>
           </div>
 
@@ -590,8 +610,12 @@ export default function SecurityIntelligence() {
         </div>
       ) : currentTab === 'intelligence' ? (
         <IntelligenceView />
-      ) : (
+      ) : currentTab === 'copilot' ? (
         <AICopilot />
+      ) : currentTab === 'timeline' ? (
+        <TimelineViewer />
+      ) : (
+        <InvestigationsWorkspace />
       )}
 
       {/* Modals */}

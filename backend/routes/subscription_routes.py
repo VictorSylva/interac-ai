@@ -291,4 +291,28 @@ async def paystack_webhook(request: Request, x_paystack_signature: str = Header(
                 await session.commit()
                 logger.info(f"[Webhook] PAYG Success for {real_business_id}: {tokens} tokens")
 
+                # Emit observation to argus-core
+                try:
+                    from services.argus_core_client import emit_observation
+                    import asyncio
+                    asyncio.create_task(
+                        emit_observation(
+                            source_system="payments",
+                            entity_type="payment",
+                            entity_id=reference,
+                            confidence=1.0,
+                            metadata={
+                                "amount": float(amount) if amount else 0.0,
+                                "business_id": real_business_id,
+                                "reference": reference,
+                                "tokens_purchased": tokens,
+                                "type": "payg_token_purchase"
+                            },
+                            context=f"PAYG tokens purchased: {tokens} tokens for business {real_business_id}",
+                            severity="info"
+                        )
+                    )
+                except Exception as obs_err:
+                    logger.warning(f"Error initiating observation emission for PAYG token purchase: {obs_err}")
+
     return {"status": "received"}

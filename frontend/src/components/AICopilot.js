@@ -13,7 +13,7 @@ export default function AICopilot() {
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const CAMERA_SERVICE_HOST = process.env.REACT_APP_CAMERA_API_URL || 'http://localhost:8001';
+  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,12 +38,11 @@ export default function AICopilot() {
     setIsTyping(true);
 
     try {
-      const response = await fetch(`${CAMERA_SERVICE_HOST}/api/v1/intelligence/chat`, {
+      const response = await fetch(`${API_HOST}/api/v2/copilot/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          query: userMessage.content,
-          history: messages.map(m => ({ role: m.role, content: m.content }))
+          query: userMessage.content
         })
       });
 
@@ -52,7 +51,7 @@ export default function AICopilot() {
       const modelMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
-        content: data.response || "Sorry, I couldn't process that request."
+        content: data.analysis || "Sorry, I couldn't process that request."
       };
 
       setMessages([...newMessages, modelMessage]);

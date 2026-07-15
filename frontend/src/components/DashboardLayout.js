@@ -193,7 +193,7 @@ export default function DashboardLayout() {
             />
         )}
 
-        <div className="p-4 md:p-8 flex-1 relative z-10">
+        <div className="p-4 md:p-8 flex-1 relative z-10 text-navy">
           <Outlet />
         </div>
       </main>
