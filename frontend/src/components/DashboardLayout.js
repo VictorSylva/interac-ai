@@ -57,17 +57,17 @@ export default function DashboardLayout() {
   };
 
   const allMenuItems = [
-    { icon: LayoutDashboard, label: 'Overview', path: '/dashboard', roles: ['owner', 'admin', 'support_agent'] },
+    { icon: LayoutDashboard, label: 'Home', path: '/dashboard', roles: ['owner', 'admin', 'support_agent'] },
     { icon: MessageSquare, label: 'Conversations', path: '/dashboard/conversations', roles: ['owner', 'admin', 'support_agent'] },
-    { icon: Users, label: 'Leads', path: '/dashboard/leads', roles: ['owner', 'admin'] },
-    { icon: BarChart2, label: 'Analytics', path: '/dashboard/analytics', roles: ['owner', 'admin'] },
-    { icon: Activity, label: 'Behavior Analytics', path: '/dashboard/behavior-analytics', roles: ['owner', 'admin'] },
-    { icon: Zap, label: 'Automations', path: '/dashboard/automations', roles: ['owner', 'admin'] },
+    { icon: Users, label: 'Customers (CRM)', path: '/dashboard/leads', roles: ['owner', 'admin'] },
+    { icon: BarChart2, label: 'Business Analytics', path: '/dashboard/analytics', roles: ['owner', 'admin'] },
+    { icon: Activity, label: 'Operational Insights', path: '/dashboard/behavior-analytics', roles: ['owner', 'admin'] },
+    { icon: Zap, label: 'Workflows & Automations', path: '/dashboard/automations', roles: ['owner', 'admin'] },
     { icon: ShoppingCart, label: 'Commerce & Sales', path: '/dashboard/sales', roles: ['owner', 'admin'] },
     { icon: Calendar, label: 'Scheduling', path: '/dashboard/scheduling', roles: ['owner', 'admin'] },
     { icon: Phone, label: 'WhatsApp Integration', path: '/dashboard/whatsapp-setup', roles: ['owner', 'admin'] },
-    { icon: Shield, label: 'Security Intelligence', path: '/dashboard/intelligence', roles: ['owner', 'admin'] },
-    { icon: Settings, label: 'Business Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
+    { icon: Shield, label: 'Security & Surveillance', path: '/dashboard/intelligence', roles: ['owner', 'admin'] },
+    { icon: Settings, label: 'Settings & Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Billing & Subscription', path: '/dashboard/subscription', roles: ['owner', 'admin'] },
   ];
 
