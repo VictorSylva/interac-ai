@@ -30,26 +30,40 @@ export function AuthProvider({ children }) {
     });
   }
 
+  async function fetchWithRetry(url, options, retries = 2, delayMs = 2500) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      if (retries > 0) {
+        console.warn(`[Auth] Backend cold start detected. Retrying request to ${url} in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return fetchWithRetry(url, options, retries - 1, delayMs);
+      }
+      throw err;
+    }
+  }
+
   function login(email, password) {
-    return fetch(`${API_BASE_URL}/api/auth/login`, {
+    return fetchWithRetry(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
     }).then(async res => {
         if (!res.ok) {
-            const err = await res.json();
+            const err = await res.json().catch(() => ({ detail: "Login failed" }));
             throw new Error(err.detail || "Login failed");
         }
         const data = await res.json();
-        // Set user immediately
         const user = data.user;
-        user.uid = user.id; // Map SQL ID to expected uid
+        user.uid = user.id;
         setCurrentUser(user);
         setUserRole(user.role);
         localStorage.setItem('interact_user', JSON.stringify(user));
         return user;
     });
   }
+
 
   function logout() {
     setCurrentUser(null);
