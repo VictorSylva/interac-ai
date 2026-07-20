@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Users, Camera, Activity, MapPin, Network } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { API_BASE_URL } from '../config';
 
 export default function IntelligenceView() {
   const [entities, setEntities] = useState([]);
@@ -8,7 +9,8 @@ export default function IntelligenceView() {
   const [loading, setLoading] = useState(true);
 
   // Single Unified API Host
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
+
 
   useEffect(() => {
     fetchIntelligenceData();

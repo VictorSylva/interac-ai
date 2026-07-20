@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Camera, MapPin, Link2, X, Plus, Trash2, Loader2, AlertTriangle } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 export default function CameraManagerModal({ isOpen, onClose, cameras, onCamerasUpdated }) {
   const [loading, setLoading] = useState(false);
@@ -10,7 +11,8 @@ export default function CameraManagerModal({ isOpen, onClose, cameras, onCameras
     rtsp_url: ''
   });
 
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
+
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });

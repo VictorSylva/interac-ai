@@ -94,11 +94,33 @@ export function AuthProvider({ children }) {
             const user = JSON.parse(stored);
             setCurrentUser(user);
             setUserRole(user.role);
+
+            // Fetch fresh status to ensure business_id and plan_tier are up-to-date
+            const bid = user.business_id || user.email;
+            if (bid) {
+                fetch(`${API_BASE_URL}/api/business-status?business_id=${encodeURIComponent(bid)}`)
+                    .then(res => res.ok ? res.json() : null)
+                    .then(statusData => {
+                        if (statusData && statusData.id) {
+                            const updatedUser = { 
+                                ...user, 
+                                business_id: statusData.id, 
+                                plan_tier: statusData.plan_name,
+                                business_name: statusData.name || user.business_name
+                            };
+                            setCurrentUser(updatedUser);
+                            localStorage.setItem('interact_user', JSON.stringify(updatedUser));
+                        }
+                    })
+                    .catch(err => console.error("Error refreshing business status:", err));
+            }
         } catch (e) {
+            console.error("AuthContext parse error:", e);
         }
     }
     setLoading(false);
   }, []);
+
 
   const value = {
     currentUser,

@@ -1,19 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bot, Send, User, Loader2 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
-export default function AICopilot() {
+export default function AICopilot({ selectedEntity = null }) {
   const [messages, setMessages] = useState([
     {
-      id: '1',
-      role: 'model',
-      content: 'I am ARGUS, your AI Security Co-Pilot. You can ask me to analyze the security graph or investigate recent alerts.'
+      id: 'welcome',
+      sender: 'bot',
+      text: 'Hello! I am your AI Copilot. Ask me questions about active risks, entity behaviors, or spatial timeline analysis.',
+      timestamp: new Date()
     }
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

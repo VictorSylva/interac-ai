@@ -34,6 +34,9 @@ import Subscription from './pages/Subscription';
 
 // Super Admin components are now self-orchestrated
 
+import IndustryModulesPage from './pages/IndustryModulesPage';
+import IndustryExtensionPage from './pages/IndustryExtensionPage';
+
 function App() {
   return (
     <AuthProvider>
@@ -53,7 +56,17 @@ function App() {
             <Route path="workflows/:id" element={<WorkflowBuilder />} />
             <Route path="workflows/:id/history" element={<WorkflowHistory />} />
             <Route path="profile" element={<BusinessProfile />} />
+
+            <Route path="modules" element={<IndustryModulesPage />} />
+            <Route path="hotels/*" element={<IndustryExtensionPage />} />
+            <Route path="irs/*" element={<IndustryExtensionPage />} />
+            <Route path="retail/*" element={<IndustryExtensionPage />} />
+            <Route path="estate/*" element={<IndustryExtensionPage />} />
+            <Route path="hospital/*" element={<IndustryExtensionPage />} />
+            <Route path="bible_translation/*" element={<IndustryExtensionPage />} />
             <Route path="whatsapp-setup" element={<WhatsAppSetup />} />
+
+
             <Route path="scheduling" element={<Scheduling />} />
             <Route path="intelligence" element={<SecurityIntelligence />} />
             <Route path="sales" element={<SalesDashboard />}>
@@ -64,6 +77,7 @@ function App() {
             </Route>
             <Route path="subscription" element={<Subscription />} />
           </Route>
+
           
           <Route path="/super-admin" element={<ProtectedRoute requiredRole="super_admin"><SuperAdminDashboard /></ProtectedRoute>} />
           <Route path="/demo" element={<DemoMultiBusinessPage />} />

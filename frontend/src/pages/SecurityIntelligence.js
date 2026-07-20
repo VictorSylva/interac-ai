@@ -12,6 +12,8 @@ import TimelineViewer from '../components/TimelineViewer';
 import InvestigationsWorkspace from '../components/InvestigationsWorkspace';
 import CameraManagerModal from '../components/CameraManagerModal';
 import ZoneConfiguratorModal from '../components/ZoneConfiguratorModal';
+import { API_BASE_URL } from '../config';
+
 
 function StreamViewer({ camera, apiHost }) {
   const [hasError, setHasError] = useState(false);
@@ -63,7 +65,8 @@ export default function SecurityIntelligence() {
   const audioCtxRef = useRef(null);
 
   // Single Unified API Host
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
+
 
   // Initialize Audio
   const playBeep = () => {

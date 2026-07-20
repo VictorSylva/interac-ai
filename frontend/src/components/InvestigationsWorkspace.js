@@ -3,6 +3,7 @@ import {
   FolderOpen, ShieldAlert, Clock, User, Clipboard, Plus, CheckCircle2, 
   MessageSquare, Send, Bot, Loader2, RefreshCw, AlertCircle, TrendingUp 
 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 export default function InvestigationsWorkspace() {
   const [cases, setCases] = useState([]);
@@ -26,7 +27,7 @@ export default function InvestigationsWorkspace() {
     assigned_to: 'Analyst'
   });
 
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
 
   useEffect(() => {
     fetchCases();

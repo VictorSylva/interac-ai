@@ -274,9 +274,19 @@ async def get_analytics_summary(business_id: str, days: int = 30):
             apt_res = await session.execute(select(Appointment).where(Appointment.business_id.in_(possible_ids)))
             all_appointments = apt_res.scalars().all()
             
+            # Auto-update status for past appointments if still marked 'scheduled'
+            for a in all_appointments:
+                if a.start_at and a.start_at < now and a.status == "scheduled":
+                    a.status = "completed"
+                    session.add(a)
+            
             total_appointments = len(all_appointments)
-            upcoming_appointments = len([a for a in all_appointments if a.start_at > now])
+            upcoming_appointments = len([
+                a for a in all_appointments 
+                if a.start_at and a.start_at > now and (a.status or "").lower() not in ["completed", "cancelled", "passed", "done"]
+            ])
             new_leads_7d = len([l for l in leads if l.created_at and l.created_at > (now - timedelta(days=7))])
+
 
             # 2. Key Metrics Aggregation
             total_conversations = len(conversations)

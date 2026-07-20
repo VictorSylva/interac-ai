@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Users, MessageCircle, TrendingUp, Calendar, ShieldCheck, Target, Heart, Zap, ShieldAlert, Activity } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config';
 import Loader from '../components/Loader';
 
 const COLORS = ['#6366f1', '#818cf8', '#4f46e5', '#312e81', '#1e1b4b'];
@@ -23,7 +24,7 @@ export default function DashboardOverview() {
   useEffect(() => {
     async function fetchData() {
         if (!currentUser) return;
-        const apiHost = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+        const apiHost = API_BASE_URL;
         
         try {
             const businessId = currentUser.business_id || currentUser.email || "default";
@@ -34,24 +35,34 @@ export default function DashboardOverview() {
                 fetch(`${apiHost}/api/v1/intelligence/top-risks?limit=5`)
             ]);
             
-            const [analyticsJson, insightsJson, balanceJson, risksJson] = await Promise.all([
-                analyticsRes.ok ? analyticsRes.json() : null,
-                insightsRes.ok ? insightsRes.json() : null,
-                balanceRes.ok ? balanceRes.json() : null,
-                risksRes.ok ? risksRes.json() : []
-            ]);
+            const analyticsJson = analyticsRes.ok ? await analyticsRes.json() : null;
+            const insightsJson = insightsRes.ok ? await insightsRes.json() : null;
+            const balanceJson = balanceRes.ok ? await balanceRes.json() : null;
+            const risksJson = risksRes.ok ? await risksRes.json() : [];
             
-            if (analyticsJson) setData({ ...analyticsJson, balance: balanceJson });
+            if (analyticsJson) {
+                setData({ ...analyticsJson, balance: balanceJson });
+            } else {
+                setData({
+                    overview: { total_conversations: 0, pipeline_value: 0, total_appointments: 0 },
+                    balance: balanceJson
+                });
+            }
             if (insightsJson) setInsights(insightsJson);
             if (Array.isArray(risksJson)) setRisks(risksJson);
         } catch (err) {
-            console.error(err);
+            console.error("Dashboard overview fetch error:", err);
+            setData({
+                overview: { total_conversations: 0, pipeline_value: 0, total_appointments: 0 },
+                balance: null
+            });
         } finally {
             setLoading(false);
         }
     }
     fetchData();
   }, [currentUser]);
+
 
   if (loading) return <div className="flex h-full items-center justify-center"><Loader message="Initializing Command Center..." /></div>;
   if (!data) return <div className="p-6 text-center text-slate-400">Unable to load command center data.</div>;
@@ -60,7 +71,8 @@ export default function DashboardOverview() {
     { label: 'Conversations', value: data.overview?.total_conversations || 0, sub: 'Active syncs', icon: Users, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
     { label: 'Pipeline', value: `$${(data.overview?.pipeline_value || 0).toLocaleString()}`, sub: 'Estimated value', icon: TrendingUp, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
     { label: 'Physical Alerts', value: risks.length, sub: 'Active incidents', icon: ShieldAlert, color: 'text-rose-400', bg: 'bg-rose-500/10' },
-    { label: 'Appointments', value: data.overview?.total_appointments || 0, sub: 'Upcoming', icon: Calendar, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+    { label: 'Appointments', value: data.overview?.upcoming_appointments ?? 0, sub: `${data.overview?.total_appointments || 0} total scheduled`, icon: Calendar, color: 'text-purple-400', bg: 'bg-purple-500/10' },
+
   ];
 
   return (

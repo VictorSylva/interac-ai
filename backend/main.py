@@ -42,11 +42,13 @@ app = FastAPI(title="Interact API", description="Backend for Interact AI Automat
 # CORS Setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.ALLOWED_ORIGINS,
+    allow_origins=config.ALLOWED_ORIGINS if config.STRICT_PROD_MODE else ["*"],
+    allow_origin_regex=".*" if not config.STRICT_PROD_MODE else None,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 @app.on_event("startup")
@@ -326,6 +328,10 @@ async def startup_event():
             from services.argus_listener import argus_listener
             await argus_listener.start()
             
+            # Load & Register InteracAI Industry Starter Modules
+            from modules.loader import load_all_industry_modules
+            await load_all_industry_modules()
+            
             break
         except Exception as e:
             if attempt < max_retries - 1:
@@ -348,7 +354,10 @@ from routes import (
     email_routes,
     usage_routes,
     debug_routes,
-    config_routes
+    config_routes,
+    entity_routes,
+    observation_routes,
+    module_routes
 )
 
 app.include_router(config_routes.router)
@@ -360,6 +369,10 @@ app.include_router(usage_routes.router, prefix="/api/usage", tags=["Usage"])
 app.include_router(sales_routes.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(admin_routes.router, prefix="/api/super-admin", tags=["Super Admin"])
 app.include_router(debug_routes.router, prefix="/api/debug", tags=["Debug"])
+app.include_router(entity_routes.router)
+app.include_router(observation_routes.router)
+app.include_router(module_routes.router)
+
 
 @app.get("/api/conversations")
 async def read_conversations(business_id: str):

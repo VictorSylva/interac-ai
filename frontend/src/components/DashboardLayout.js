@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, Calendar, Phone, Activity, Shield, Check, ShoppingCart } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, Calendar, Phone, Activity, Shield, Check, ShoppingCart, Layers } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config';
 import SubscriptionBanner from './SubscriptionBanner';
@@ -12,21 +12,32 @@ export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [subStatus, setSubStatus] = useState(null);
   const [userDropdown, setUserDropdown] = useState(false);
+  const [installedModules, setInstalledModules] = useState([]);
   const businessId = currentUser?.business_id || currentUser?.email;
+
+  const fetchInstalledModules = React.useCallback(() => {
+    if (!businessId) return;
+    fetch(`${API_BASE_URL}/api/v1/modules/installed?org_id=${encodeURIComponent(businessId)}`)
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        setInstalledModules(Array.isArray(data) ? data : data.modules || []);
+      })
+      .catch(err => console.error("Error fetching installed modules:", err));
+  }, [businessId]);
 
   React.useEffect(() => {
     if (businessId) {
         fetch(`${API_BASE_URL}/api/business-status?business_id=${businessId}`)
-             .then(res => {
-                 if(res.ok) return res.json();
-                 return null;
-             })
-             .then(data => {
-                 if(data) setSubStatus(data);
-             })
+             .then(res => res.ok ? res.json() : null)
+             .then(data => { if(data) setSubStatus(data); })
              .catch(err => {});
+        fetchInstalledModules();
      }
-  }, [businessId]);
+
+     const handleModuleChange = () => fetchInstalledModules();
+     window.addEventListener('installedModulesChanged', handleModuleChange);
+     return () => window.removeEventListener('installedModulesChanged', handleModuleChange);
+  }, [businessId, fetchInstalledModules]);
 
   const getPlanBadge = () => {
     if (!subStatus || subStatus.status !== 'active') return null;
@@ -56,7 +67,7 @@ export default function DashboardLayout() {
     }
   };
 
-  const allMenuItems = [
+  const baseMenuItems = [
     { icon: LayoutDashboard, label: 'Home', path: '/dashboard', roles: ['owner', 'admin', 'support_agent'] },
     { icon: MessageSquare, label: 'Conversations', path: '/dashboard/conversations', roles: ['owner', 'admin', 'support_agent'] },
     { icon: Users, label: 'Customers (CRM)', path: '/dashboard/leads', roles: ['owner', 'admin'] },
@@ -67,19 +78,45 @@ export default function DashboardLayout() {
     { icon: Calendar, label: 'Scheduling', path: '/dashboard/scheduling', roles: ['owner', 'admin'] },
     { icon: Phone, label: 'WhatsApp Integration', path: '/dashboard/whatsapp-setup', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Security & Surveillance', path: '/dashboard/intelligence', roles: ['owner', 'admin'] },
+    { icon: Layers, label: 'Industry Modules', path: '/dashboard/modules', roles: ['owner', 'admin'] },
     { icon: Settings, label: 'Settings & Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Billing & Subscription', path: '/dashboard/subscription', roles: ['owner', 'admin'] },
   ];
 
+  // Dynamically inject industry module UI extension routes
+  const moduleMenuItems = [];
+  installedModules.forEach(mod => {
+    if (mod.ui_extensions && Array.isArray(mod.ui_extensions.routes)) {
+      mod.ui_extensions.routes.forEach(r => {
+        let iconComp = Activity;
+        if (mod.id === 'module_hotels') iconComp = Activity;
+        else if (mod.id === 'module_nigeria_irs') iconComp = Shield;
+        else if (mod.id === 'module_retail') iconComp = ShoppingCart;
+        else if (mod.id === 'module_estate') iconComp = Shield;
+        else if (mod.id === 'module_hospital') iconComp = Activity;
+        else if (mod.id === 'module_bible_translation') iconComp = Zap;
+
+        moduleMenuItems.push({
+          icon: iconComp,
+          label: r.title,
+          path: `/dashboard${r.path}`,
+          roles: ['owner', 'admin'],
+          isExtension: true,
+          moduleName: mod.name
+        });
+      });
+    }
+  });
+
+
+  const allMenuItems = [...baseMenuItems, ...moduleMenuItems];
+
   const menuItems = allMenuItems.filter(item => {
       if (!userRole) return false;
-      // Default to owner if role string is weird, or just strict check
-      // We'll normalize role to lower case just in case
       const role = userRole.toLowerCase();
-      // If role is owner, show all? Or explicit check.
-      // Owner/Admin/Support
-      return item.roles.includes(role) || role === 'owner'; // Owner always sees all
+      return item.roles.includes(role) || role === 'owner';
   });
+
 
   return (
     <div className="flex h-screen bg-navy text-white">

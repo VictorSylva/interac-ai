@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Search, MapPin, Database, MessageSquare, ShieldAlert, CreditCard, Eye, ChevronDown, ChevronUp } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 export default function TimelineViewer() {
   const [entityId, setEntityId] = useState('');
@@ -8,7 +9,8 @@ export default function TimelineViewer() {
   const [error, setError] = useState('');
   const [expandedItems, setExpandedItems] = useState({});
 
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
+
 
   const handleSearch = async (e) => {
     if (e) e.preventDefault();

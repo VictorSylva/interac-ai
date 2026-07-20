@@ -6,3 +6,7 @@ from . import email_routes
 from . import usage_routes
 from . import debug_routes
 from . import config_routes
+from . import entity_routes
+from . import observation_routes
+from . import module_routes
+

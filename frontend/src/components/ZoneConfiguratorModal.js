@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings, Save, X, RotateCcw, AlertTriangle, Loader2 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 export default function ZoneConfiguratorModal({ isOpen, onClose, camera, onZonesUpdated }) {
   const [points, setPoints] = useState([]);
@@ -7,7 +8,8 @@ export default function ZoneConfiguratorModal({ isOpen, onClose, camera, onZones
   const [error, setError] = useState(null);
   const containerRef = useRef(null);
 
-  const API_HOST = process.env.REACT_APP_API_URL || 'http://localhost:8080';
+  const API_HOST = API_BASE_URL;
+
 
   // Load existing zone polygons if they exist
   useEffect(() => {
