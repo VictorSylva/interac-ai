@@ -262,37 +262,6 @@ async def debug_config():
         "allowed_origins": config.ALLOWED_ORIGINS,
         "current_time": datetime.utcnow().isoformat()
     }
-
-
-@app.get("/api/debug/db-test")
-async def test_db_endpoint():
-    from database.session import AsyncSessionLocal
-    from sqlalchemy import text, select
-    import traceback
-    try:
-        async with AsyncSessionLocal() as session:
-            res = await session.execute(text("SELECT 1"))
-            val = res.scalar()
-            
-            from database.models.general import User
-            res_user = await session.execute(select(User).limit(1))
-            user = res_user.scalars().first()
-            
-            return {
-                "status": "success",
-                "select_1": val,
-                "has_user": user is not None,
-                "user_email": user.email if user else None,
-                "user_status": getattr(user, 'status', 'no-status-attr') if user else None
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc()
-        }
-
-
 @app.on_event("startup")
 async def startup_event():
     # Auto-create tables for MVP (replaces manually running alembic revision for now)
