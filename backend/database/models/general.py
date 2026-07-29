@@ -21,6 +21,9 @@ class Business(Base):
     whatsapp_config = relationship("BusinessWhatsAppConfig", back_populates="business", uselist=False)
     email_config = relationship("BusinessEmailConfig", back_populates="business", uselist=False)
     activities = relationship("LeadActivity", back_populates="business")
+    properties = relationship("Property", back_populates="business")
+    roles = relationship("Role", back_populates="business")
+    invitations = relationship("UserInvitation", back_populates="business")
     
     # Scheduling Relationships
     appointment_types = relationship("AppointmentType", back_populates="business")
@@ -45,9 +48,19 @@ class User(Base):
     reset_token_expiry = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     department = Column(String, nullable=True) # e.g. "sales", "support", "billing"
+    property_id = Column(String, nullable=True) # Link to specific hotel property for multi-unit corporate hierarchy
 
     business = relationship("Business", back_populates="users")
     push_subscriptions = relationship("PushSubscription", back_populates="user")
+    
+    # Extended Enterprise Identity fields
+    status = Column(String, default="active") # active, suspended, pending
+    email_verified = Column(Boolean, default=False)
+    verification_token = Column(String, nullable=True)
+    role_id = Column(String, ForeignKey("roles.id"), nullable=True)
+    department_id = Column(String, nullable=True)
+    
+    custom_role = relationship("Role", back_populates="users")
 
 class PushSubscription(Base):
     __tablename__ = "push_subscriptions"
@@ -78,6 +91,7 @@ class BusinessSettings(Base):
     hours = Column(String)
     auto_escalate_on_keyword = Column(Boolean, default=False)
     departments = Column(JSON, default=lambda: ["sales", "support", "billing", "general"]) # Default departments
+    installed_modules = Column(JSON, default=list) # Persisted list of active industry modules
     updated_at = Column(DateTime, default=datetime.utcnow)
 
     business = relationship("Business", back_populates="settings")
@@ -139,3 +153,53 @@ class BusinessEmailConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     business = relationship("Business", back_populates="email_config")
+
+class Property(Base):
+    __tablename__ = "properties"
+    
+    id = Column(String, primary_key=True)
+    business_id = Column(String, ForeignKey("businesses.id"))
+    name = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    business = relationship("Business", back_populates="properties")
+
+class Role(Base):
+    __tablename__ = "roles"
+    
+    id = Column(String, primary_key=True)
+    business_id = Column(String, ForeignKey("businesses.id"), nullable=True) # Null for system-wide roles
+    name = Column(String)
+    code = Column(String) # owner, receptionist, general_manager, security_officer, etc.
+    permissions = Column(JSON, default=list) # List of permission strings
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    business = relationship("Business", back_populates="roles")
+    users = relationship("User", back_populates="custom_role")
+
+class UserInvitation(Base):
+    __tablename__ = "user_invitations"
+    
+    id = Column(String, primary_key=True) # Token
+    business_id = Column(String, ForeignKey("businesses.id"))
+    email = Column(String, index=True)
+    role = Column(String, default="agent") # Role code
+    department = Column(String, default="general")
+    property_id = Column(String, nullable=True)
+    status = Column(String, default="pending") # pending, accepted, expired
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime)
+
+    business = relationship("Business", back_populates="invitations")
+
+class LoginAuditLog(Base):
+    __tablename__ = "login_audit_logs"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    email = Column(String)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    status = Column(String) # success, failed
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

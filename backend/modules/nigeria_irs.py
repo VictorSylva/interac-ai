@@ -4,7 +4,7 @@ Processes taxpayer compliance dossiers (TIN), assessment filings, POS terminal t
 """
 
 from typing import Dict, Any, List
-from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec
+from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec, PermissionSpec, WidgetSpec
 from services.copilot_skill_registry import copilot_skill_registry
 
 
@@ -35,8 +35,16 @@ class NigeriaIRSModule(BaseIndustryModule):
                     UIRouteSpec(path="/irs/taxpayer-dossier", component="TaxpayerDossierPage", title="Taxpayer Compliance Dossier", icon="FileCheck"),
                     UIRouteSpec(path="/irs/evasion-radar", component="TaxEvasionRadarPage", title="Evasion Anomaly Radar", icon="AlertTriangle"),
                     UIRouteSpec(path="/irs/lga-yield", component="LGAYieldPage", title="LGA Revenue Trajectory", icon="TrendingUp")
+                ],
+                dashboard_widgets=[
+                    WidgetSpec(id="irs_total_yield", type="metric", title="LGA Revenue Collection", icon="DollarSign", config={"value": "₦1.8B"}),
+                    WidgetSpec(id="irs_compliance_rate", type="chart", title="Taxpayer Compliance Index", icon="TrendingUp", config={})
                 ]
-            )
+            ),
+            permissions=[
+                PermissionSpec(department="audit", role_tier="officer"),
+                PermissionSpec(department="finance", role_tier="officer")
+            ]
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:

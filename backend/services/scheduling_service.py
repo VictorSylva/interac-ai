@@ -74,7 +74,7 @@ class SchedulingService:
                     
             return available_slots
 
-    async def book_appointment(self, business_id: str, appointment_type_id: str, start_at: datetime, lead_id: int = None, conversation_id: str = None, notes: str = None):
+    async def book_appointment(self, business_id: str, appointment_type_id: str, start_at: datetime, lead_id: int = None, conversation_id: str = None, notes: str = None, bypass_validation: bool = False):
         """
         Records a new appointment.
         """
@@ -91,12 +91,30 @@ class SchedulingService:
                 return {"success": False, "error": "Ownership mismatch"}
 
             end_at = start_at + timedelta(minutes=apt_type.duration_minutes)
+
+            # 1a. Validate slot availability (ensure it is not taken or outside rules)
+            if not bypass_validation:
+                available_slots = await self.get_available_slots(business_id, start_at.date(), appointment_type_id)
+                logger.info(f"[BookingService] Checking slot {start_at} against available slots: {available_slots}")
+                
+                matched = False
+                for slot in available_slots:
+                    if abs((slot - start_at).total_seconds()) < 60:
+                        matched = True
+                        start_at = slot
+                        end_at = start_at + timedelta(minutes=apt_type.duration_minutes)
+                        break
+                
+                if not matched:
+                    logger.warning(f"[BookingService] Slot {start_at} is not available for BID {business_id}, type {appointment_type_id}")
+                    return {"success": False, "error": "This time slot is no longer available. Please select another slot."}
             
             # 2. Resolve Lead ID if missing but conversation_id exists
             if not lead_id and conversation_id:
                 from services.db_service import get_lead_by_conversation
-                lead_id = await get_lead_by_conversation(business_id, conversation_id)
-                if lead_id:
+                lead_obj = await get_lead_by_conversation(business_id, conversation_id)
+                if lead_obj:
+                    lead_id = lead_obj.id
                     logger.info(f"[BookingService] Resolved lead_id {lead_id} from conversation_id {conversation_id}")
 
             # 2a. Check for duplicates (Idempotency)
@@ -190,7 +208,7 @@ class SchedulingService:
                 for a in apts
             ]
 
-    async def get_upcoming_available_slots(self, business_id: str, days: int = 3):
+    async def get_upcoming_available_slots(self, business_id: str, days: int = 3, query_context: str = None):
         """
         Fetches available slots for the next 'days' days.
         Returns a dictionary mapping dates to lists of available slot times.
@@ -208,8 +226,24 @@ class SchedulingService:
             if not apt_types:
                 return {}
                 
-            # For simplicity in the prompt, let's just use the first active appointment type
+            # Match appointment type to user request context if possible (e.g., billing vs sales vs general support)
             target_type = apt_types[0]
+            if query_context:
+                qc_lower = query_context.lower()
+                for at in apt_types:
+                    name_lower = at.name.lower()
+                    if "billing" in name_lower and "billing" in qc_lower:
+                        target_type = at
+                        break
+                    elif "sales" in name_lower and "sales" in qc_lower:
+                        target_type = at
+                        break
+                    elif "support" in name_lower and "support" in qc_lower:
+                        target_type = at
+                        break
+                    elif "demo" in name_lower and "demo" in qc_lower:
+                        target_type = at
+                        break
             
             for i in range(days):
                 current_date = today + timedelta(days=i)

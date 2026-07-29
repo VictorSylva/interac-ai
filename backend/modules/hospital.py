@@ -4,7 +4,7 @@ Monitors patient flow, emergency ward bottlenecks, medical equipment tracking, a
 """
 
 from typing import Dict, Any, List
-from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec
+from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec, PermissionSpec, WidgetSpec
 from services.copilot_skill_registry import copilot_skill_registry
 
 
@@ -30,8 +30,17 @@ class HospitalModule(BaseIndustryModule):
                 routes=[
                     UIRouteSpec(path="/hospital/patient-flow", component="PatientFlowPage", title="Patient Flow Radar", icon="Activity"),
                     UIRouteSpec(path="/hospital/equipment-tracker", component="EquipmentTrackerPage", title="Equipment Asset Map", icon="Crosshair")
+                ],
+                dashboard_widgets=[
+                    WidgetSpec(id="hospital_wait_time", type="metric", title="Avg Patient Wait Time", icon="Clock", config={"value": "14m"}),
+                    WidgetSpec(id="hospital_bed_capacity", type="chart", title="Occupied Bed Ratio", icon="Bed", config={})
                 ]
-            )
+            ),
+            permissions=[
+                PermissionSpec(department="clinical", role_tier="officer"),
+                PermissionSpec(department="pharmacy", role_tier="staff"),
+                PermissionSpec(department="reception", role_tier="staff")
+            ]
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:

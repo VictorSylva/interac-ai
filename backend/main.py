@@ -14,7 +14,8 @@ logger.info(f"DEBUG: {config.DEBUG}")
 logger.info(f"STRICT_PROD_MODE: {config.STRICT_PROD_MODE}")
 
 from database.session import AsyncSessionLocal
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Depends
+from services.auth_service import get_current_user, require_permission
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, select, func
 import os
@@ -276,47 +277,112 @@ async def startup_event():
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-                # One-time patches for existing tables (PostgreSQL specific)
-                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR"))
-                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expiry TIMESTAMP"))
+                # One-time patches for existing tables (Dialect-agnostic)
+                is_pg = "postgresql" in str(engine.url)
                 
-                # Migrations for Sales Order enhancement
-                await conn.execute(text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS payment_mode VARCHAR DEFAULT 'test'"))
+                statements = [
+                    "ALTER TABLE users ADD COLUMN {ine} reset_token VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} reset_token_expiry TIMESTAMP",
+                    "ALTER TABLE sales_orders ADD COLUMN {ine} payment_mode VARCHAR DEFAULT 'test'",
+                    "ALTER TABLE businesses ADD COLUMN {ine} is_deleted BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE conversations ADD COLUMN {ine} mode VARCHAR DEFAULT 'ai'",
+                    "ALTER TABLE conversations ADD COLUMN {ine} assigned_agent_id VARCHAR",
+                    "ALTER TABLE conversations ADD COLUMN {ine} status VARCHAR DEFAULT 'active'",
+                    "ALTER TABLE conversations ADD COLUMN {ine} last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "ALTER TABLE conversations ADD COLUMN {ine} conversation_start_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "ALTER TABLE conversations ADD COLUMN {ine} is_active BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE subscription_plans ADD COLUMN {ine} is_public BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE subscription_plans ADD COLUMN {ine} requires_contact BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE business_settings ADD COLUMN {ine} auto_escalate_on_keyword BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE conversations ADD COLUMN {ine} department VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} department VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} property_id VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} status VARCHAR DEFAULT 'active'",
+                    "ALTER TABLE users ADD COLUMN {ine} email_verified BOOLEAN DEFAULT FALSE",
+                    "ALTER TABLE users ADD COLUMN {ine} verification_token VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} role_id VARCHAR"
+                ]
+                
+                for stmt in statements:
+                    query_text = stmt.format(ine="IF NOT EXISTS" if is_pg else "")
+                    try:
+                        await conn.execute(text(query_text))
+                    except Exception as stmt_err:
+                        logger.debug(f"Migration column patch skipped: {stmt_err}")
+                
+                if is_pg:
+                    try:
+                        await conn.execute(text("ALTER TABLE subscription_plans ALTER COLUMN price DROP NOT NULL"))
+                    except Exception as drop_err:
+                        logger.debug(f"Drop not null check skipped: {drop_err}")
 
-                # Admin Refactor Migrations
-                await conn.execute(text("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE"))
-
-                # Handover System Migrations
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode VARCHAR DEFAULT 'ai'"))
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS assigned_agent_id VARCHAR"))
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'active'"))
-                
-                # Billing Refactor Migrations
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_start_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
-                # Subscription Plan Migrations
-                await conn.execute(text("ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT TRUE"))
-                await conn.execute(text("ALTER TABLE subscription_plans ADD COLUMN IF NOT EXISTS requires_contact BOOLEAN DEFAULT FALSE"))
-                await conn.execute(text("ALTER TABLE subscription_plans ALTER COLUMN price DROP NOT NULL"))
-
-                await conn.execute(text("ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS auto_escalate_on_keyword BOOLEAN DEFAULT FALSE"))
-                
-                # Multi-Agent & Department System
-                await conn.execute(text("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS department VARCHAR"))
-                await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR"))
-                
                 # Push Notifications
+                if is_pg:
+                    await conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS push_subscriptions (
+                            id SERIAL PRIMARY KEY,
+                            user_id VARCHAR REFERENCES users(id),
+                            endpoint TEXT UNIQUE,
+                            p256dh TEXT,
+                            auth TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                else:
+                    await conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS push_subscriptions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id VARCHAR REFERENCES users(id),
+                            endpoint TEXT UNIQUE,
+                            p256dh TEXT,
+                            auth TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+
+                # Fallback Tables for Investigations
                 await conn.execute(text("""
-                    CREATE TABLE IF NOT EXISTS push_subscriptions (
-                        id SERIAL PRIMARY KEY,
-                        user_id VARCHAR REFERENCES users(id),
-                        endpoint TEXT UNIQUE,
-                        p256dh TEXT,
-                        auth TEXT,
+                    CREATE TABLE IF NOT EXISTS investigations (
+                        id VARCHAR PRIMARY KEY,
+                        title VARCHAR,
+                        entity_identifier VARCHAR,
+                        description TEXT,
+                        severity VARCHAR,
+                        status VARCHAR DEFAULT 'open',
+                        assigned_to VARCHAR,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """))
+                if is_pg:
+                    await conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS investigation_notes (
+                            id SERIAL PRIMARY KEY,
+                            case_id VARCHAR REFERENCES investigations(id),
+                            author VARCHAR,
+                            text TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                else:
+                    await conn.execute(text("""
+                        CREATE TABLE IF NOT EXISTS investigation_notes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            case_id VARCHAR REFERENCES investigations(id),
+                            author VARCHAR,
+                            text TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+
+            # One-off patches for installed_modules to prevent PostgreSQL InFailedSQLTransactionError
+            try:
+                async with engine.begin() as conn:
+                    if "postgresql" in str(engine.url):
+                        await conn.execute(text("ALTER TABLE business_settings ADD COLUMN IF NOT EXISTS installed_modules TEXT DEFAULT '[]'"))
+                    else:
+                        await conn.execute(text("ALTER TABLE business_settings ADD COLUMN installed_modules TEXT DEFAULT '[]'"))
+            except Exception as patch_err:
+                logger.info(f"Optional patch installed_modules error ignored: {patch_err}")
 
             # 4. Seed Subscription Plans
             from seed_plans import seed_plans
@@ -357,7 +423,9 @@ from routes import (
     config_routes,
     entity_routes,
     observation_routes,
-    module_routes
+    module_routes,
+    hotel_routes,
+    copilot_fallback_routes
 )
 
 app.include_router(config_routes.router)
@@ -372,6 +440,8 @@ app.include_router(debug_routes.router, prefix="/api/debug", tags=["Debug"])
 app.include_router(entity_routes.router)
 app.include_router(observation_routes.router)
 app.include_router(module_routes.router)
+app.include_router(hotel_routes.router)
+app.include_router(copilot_fallback_routes.router)
 
 
 @app.get("/api/conversations")
@@ -503,14 +573,29 @@ async def register_endpoint(body: RegisterRequest):
             raise HTTPException(status_code=500, detail="Registration failed")
 
 @app.post("/api/auth/login")
-async def login_endpoint(body: LoginRequest):
+async def login_endpoint(body: LoginRequest, request: Request):
     logger.info(f"[DIAGNOSTIC] Login request received for email: {body.email}")
     from database.session import AsyncSessionLocal
+    from database.models.general import LoginAuditLog
+    from services.auth_service import create_access_token, get_user_permissions
+    
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    
     async with AsyncSessionLocal() as session:
         try:
             user = await authenticate_user(session, body.email, body.password)
         except ValueError as e:
             logger.warning(f"[DIAGNOSTIC] Login failed (ValueError): {e}")
+            audit = LoginAuditLog(
+                email=body.email,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                status="failed",
+                reason=str(e)
+            )
+            session.add(audit)
+            await session.commit()
             raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"[DIAGNOSTIC] Login error: {e}")
@@ -518,7 +603,38 @@ async def login_endpoint(body: LoginRequest):
         
         if not user:
              logger.warning(f"[DIAGNOSTIC] Login failed: Invalid credentials for {body.email}")
+             audit = LoginAuditLog(
+                 email=body.email,
+                 ip_address=ip_address,
+                 user_agent=user_agent,
+                 status="failed",
+                 reason="Invalid credentials"
+             )
+             session.add(audit)
+             await session.commit()
              raise HTTPException(status_code=401, detail="Invalid credentials")
+             
+        # Success path
+        permissions = await get_user_permissions(user, session)
+        token = create_access_token({
+            "user_id": user.id,
+            "business_id": user.business_id,
+            "email": user.email,
+            "role": user.role,
+            "department": getattr(user, 'department', 'general') or 'general',
+            "property_id": getattr(user, 'property_id', None),
+            "permissions": permissions
+        })
+        
+        audit = LoginAuditLog(
+            user_id=user.id,
+            email=user.email,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            status="success"
+        )
+        session.add(audit)
+        await session.commit()
     
     return {
         "status": "success",
@@ -526,9 +642,12 @@ async def login_endpoint(body: LoginRequest):
             "id": user.id,
             "email": user.email,
             "business_id": user.business_id,
-            "role": user.role
+            "role": user.role,
+            "department": getattr(user, 'department', 'general') or 'general',
+            "property_id": getattr(user, 'property_id', None),
+            "permissions": permissions
         },
-        "token": "dummy-jwt-token-for-mvp" 
+        "token": token
     }
 
 @app.post("/api/auth/forgot-password")
@@ -551,6 +670,304 @@ async def reset_password_endpoint(body: ResetPasswordRequest):
         if not success:
             raise HTTPException(status_code=400, detail="Invalid or expired token")
         return {"status": "success", "message": "Password updated"}
+
+class UpdateProfileRequest(BaseModel):
+    user_id: str
+    department: str
+    role: str
+    property_id: Optional[str] = None
+
+@app.put("/api/auth/profile")
+async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
+    is_admin = current_user.get("role") in ["owner", "admin", "super_admin"]
+    is_self = current_user.get("id") == body.user_id
+    
+    if not is_admin and not is_self:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import User
+    from services.auth_service import get_user_permissions
+    
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(User).where(User.id == body.user_id))
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        if is_admin:
+            user.department = body.department
+            user.role = body.role
+            user.property_id = body.property_id
+        else:
+            user.property_id = body.property_id
+            
+        await session.commit()
+        await session.refresh(user)
+        permissions = await get_user_permissions(user, session)
+        
+        return {
+            "status": "success",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "business_id": user.business_id,
+                "role": user.role,
+                "department": user.department,
+                "property_id": user.property_id,
+                "permissions": permissions
+            }
+        }
+
+class InviteRequest(BaseModel):
+    email: str
+    role: str
+    department: str
+    property_id: Optional[str] = None
+
+@app.post("/api/auth/invite")
+async def invite_employee_endpoint(body: InviteRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Only owners and administrators can invite employees")
+        
+    from database.session import AsyncSessionLocal
+    from services.auth_service import create_employee_invitation
+    
+    async with AsyncSessionLocal() as session:
+        invitation = await create_employee_invitation(
+            session=session,
+            business_id=current_user.get("business_id"),
+            email=body.email,
+            role_code=body.role,
+            department=body.department,
+            property_id=body.property_id
+        )
+        return {
+            "status": "success",
+            "message": "Invitation sent successfully",
+            "invitation_id": invitation.id
+        }
+
+@app.get("/api/auth/invitations")
+async def get_invitations_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import UserInvitation
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(UserInvitation).where(
+            UserInvitation.business_id == current_user.get("business_id"),
+            UserInvitation.status == "pending"
+        ).order_by(UserInvitation.created_at.desc())
+        res = await session.execute(stmt)
+        invites = res.scalars().all()
+        return [
+            {
+                "id": invite.id,
+                "email": invite.email,
+                "role": invite.role,
+                "department": invite.department,
+                "property_id": invite.property_id,
+                "created_at": invite.created_at
+            } for invite in invites
+        ]
+
+@app.post("/api/auth/invitations/{invitation_id}/cancel")
+async def cancel_invitation_endpoint(invitation_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import UserInvitation
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(UserInvitation).where(
+            UserInvitation.id == invitation_id,
+            UserInvitation.business_id == current_user.get("business_id")
+        )
+        res = await session.execute(stmt)
+        invite = res.scalar_one_or_none()
+        if not invite:
+            raise HTTPException(status_code=404, detail="Invitation not found")
+        invite.status = "expired"
+        await session.commit()
+        return {"status": "success", "message": "Invitation cancelled"}
+
+@app.get("/api/auth/invitation-details")
+async def get_invitation_details_endpoint(token: str):
+    from database.session import AsyncSessionLocal
+    from database.models.general import UserInvitation, Business
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(UserInvitation, Business.name).join(
+            Business, UserInvitation.business_id == Business.id
+        ).where(UserInvitation.id == token, UserInvitation.status == "pending")
+        res = await session.execute(stmt)
+        row = res.first()
+        if not row:
+            raise HTTPException(status_code=400, detail="Invalid or expired invitation token")
+        invite, biz_name = row
+        return {
+            "email": invite.email,
+            "business_name": biz_name,
+            "role": invite.role,
+            "department": invite.department
+        }
+
+class AcceptInviteRequest(BaseModel):
+    token: str
+    password: str
+
+@app.post("/api/auth/accept-invitation")
+async def accept_invitation_endpoint(body: AcceptInviteRequest):
+    from database.session import AsyncSessionLocal
+    from services.auth_service import accept_employee_invitation, create_access_token, get_user_permissions
+    
+    async with AsyncSessionLocal() as session:
+        user = await accept_employee_invitation(session, body.token, body.password)
+        if not user:
+            raise HTTPException(status_code=400, detail="Failed to accept invitation. Token might be expired or invalid.")
+            
+        permissions = await get_user_permissions(user, session)
+        token = create_access_token({
+            "user_id": user.id,
+            "business_id": user.business_id,
+            "email": user.email,
+            "role": user.role,
+            "department": getattr(user, 'department', 'general') or 'general',
+            "property_id": getattr(user, 'property_id', None),
+            "permissions": permissions
+        })
+        
+        return {
+            "status": "success",
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "business_id": user.business_id,
+                "role": user.role,
+                "department": getattr(user, 'department', 'general') or 'general',
+                "property_id": getattr(user, 'property_id', None),
+                "permissions": permissions
+            },
+            "token": token
+        }
+
+@app.get("/api/auth/users")
+async def get_business_users_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import User
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(User).where(
+            User.business_id == current_user.get("business_id")
+        ).order_by(User.created_at.desc())
+        res = await session.execute(stmt)
+        users = res.scalars().all()
+        return [
+            {
+                "id": u.id,
+                "email": u.email,
+                "role": u.role,
+                "department": u.department or "general",
+                "property_id": u.property_id,
+                "status": u.status or "active",
+                "created_at": u.created_at
+            } for u in users
+        ]
+
+class ToggleUserStatusRequest(BaseModel):
+    status: str
+
+@app.put("/api/auth/users/{user_id}/status")
+async def toggle_user_status_endpoint(user_id: str, body: ToggleUserStatusRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    if user_id == current_user.get("id"):
+        raise HTTPException(status_code=400, detail="You cannot suspend your own account")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import User
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(User).where(User.id == user_id, User.business_id == current_user.get("business_id"))
+        res = await session.execute(stmt)
+        user = res.scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user.status = body.status
+        await session.commit()
+        return {"status": "success", "message": f"User status updated to {body.status}"}
+
+@app.get("/api/auth/login-history")
+async def get_login_history_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import LoginAuditLog, User
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(LoginAuditLog).join(
+            User, LoginAuditLog.user_id == User.id
+        ).where(
+            User.business_id == current_user.get("business_id")
+        ).order_by(LoginAuditLog.created_at.desc()).limit(100)
+        
+        res = await session.execute(stmt)
+        logs = res.scalars().all()
+        return [
+            {
+                "id": log.id,
+                "email": log.email,
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+                "status": log.status,
+                "reason": log.reason,
+                "created_at": log.created_at
+            } for log in logs
+        ]
+
+class PropertyCreateRequest(BaseModel):
+    name: str
+
+@app.post("/api/auth/properties")
+async def create_property_endpoint(body: PropertyCreateRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import Property
+    import uuid
+    
+    async with AsyncSessionLocal() as session:
+        prop = Property(
+            id=str(uuid.uuid4()),
+            business_id=current_user.get("business_id"),
+            name=body.name
+        )
+        session.add(prop)
+        await session.commit()
+        return {"status": "success", "id": prop.id, "name": prop.name}
+
+@app.get("/api/auth/properties")
+async def get_properties_endpoint(current_user: dict = Depends(get_current_user)):
+    from database.session import AsyncSessionLocal
+    from database.models.general import Property
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(Property).where(Property.business_id == current_user.get("business_id")).order_by(Property.created_at.desc())
+        res = await session.execute(stmt)
+        props = res.scalars().all()
+        return [{"id": p.id, "name": p.name} for p in props]
+
 
 class PushSubscribeRequest(BaseModel):
     user_id: str
@@ -933,6 +1350,7 @@ async def train_business_ai(business_id: str):
 
 @app.post("/api/web-chat")
 async def web_chat(body: WebMessage):
+    from services.scheduling_service import scheduling_service
     try:
         profile_id = await resolve_business_id(body.business_id)
         # real_business_id is now consistently the UUID if user found
@@ -1062,22 +1480,38 @@ async def web_chat(body: WebMessage):
         # 3.2 Dynamic Context injection (Scheduling)
         extra_context = ""
         
-        # Check if we should inject booking context
-        is_booking_intent = detected_intent == "booking" or "book" in body.message.lower() or "schedule" in body.message.lower()
+        # Check if we should inject booking context (e.g., booking, scheduling, talking/meeting with a team)
+        is_booking_intent = (
+            detected_intent == "booking" or 
+            "book" in body.message.lower() or 
+            "schedule" in body.message.lower() or
+            "appointment" in body.message.lower() or
+            "slot" in body.message.lower() or
+            "talk to" in body.message.lower() or
+            "speak to" in body.message.lower() or
+            "meet with" in body.message.lower() or
+            "call with" in body.message.lower() or
+            ("billing" in body.message.lower() and ("team" in body.message.lower() or "talk" in body.message.lower() or "connect" in body.message.lower()))
+        )
         
         # Also check history: if the last human message was booking, or AI just sent slots
         in_booking_flow = is_booking_intent
         if not in_booking_flow and formatted_history:
-            # Check last 3 messages for "booking" markers
+            # Check last 3 messages for "booking" markers robustly
+            booking_keywords = ["book", "schedule", "appointment", "meeting", "call", "slot", "reserve", "availability", "available"]
             for h in formatted_history[-3:]:
                 content_lower = h['content'].lower()
-                if "available slots" in content_lower or "schedule" in content_lower or "book" in content_lower:
+                if any(k in content_lower for k in booking_keywords):
                     in_booking_flow = True
                     break
 
         if in_booking_flow:
             from services.scheduling_service import scheduling_service
-            availability_data = await scheduling_service.get_upcoming_available_slots(real_business_id)
+            # Resolve query context from current message and recent history
+            context_search_text = body.message
+            if formatted_history:
+                context_search_text += " " + " ".join([m.get("content", "") for m in formatted_history[-5:]])
+            availability_data = await scheduling_service.get_upcoming_available_slots(real_business_id, query_context=context_search_text)
             
             now = datetime.utcnow()
             extra_context = f"\n*** LIVE AVAILABILITY ***\n"
@@ -1228,21 +1662,109 @@ async def web_chat(body: WebMessage):
             try:
                 booking_json_str = booking_match.group('json').strip()
                 
-                # Clean up potential markdown code blocks if AI wrapped them
-                if booking_json_str.startswith("```json"):
-                    booking_json_str = booking_json_str.replace("```json", "", 1)
-                if booking_json_str.endswith("```"):
-                    booking_json_str = booking_json_str.rsplit("```", 1)[0]
-                    
-                booking_data = json.loads(booking_json_str)
+                # Clean up potential markdown code blocks robustly
+                booking_json_str = re.sub(r'^```(?:json)?\s*', '', booking_json_str)
+                booking_json_str = re.sub(r'\s*```$', '', booking_json_str)
+                booking_json_str = booking_json_str.strip()
                 
-                # Convert string to datetime
-                start_at = datetime.fromisoformat(booking_data['start_at'])
+                try:
+                    booking_data = json.loads(booking_json_str)
+                except json.JSONDecodeError:
+                    import ast
+                    try:
+                        booking_data = ast.literal_eval(booking_json_str)
+                    except Exception:
+                        raise ValueError(f"Invalid booking JSON format: {booking_json_str}")
+                
+                # Normalize keys (lowercase and remove underscores) for robustness
+                normalized_data = {}
+                for k, v in booking_data.items():
+                    norm_k = k.lower().replace("_", "").replace("-", "")
+                    normalized_data[norm_k] = v
+                
+                apt_type_id = normalized_data.get('appointmenttypeid')
+                start_at_str = normalized_data.get('startat')
+                
+                if not apt_type_id or not start_at_str:
+                    raise KeyError(f"Missing required booking fields (appointment_type_id/start_at) in normalized keys: {normalized_data}")
+                
+                # Verify and resolve appointment_type_id fuzzy match
+                is_valid_uuid = False
+                try:
+                    import uuid
+                    uuid.UUID(str(apt_type_id))
+                    is_valid_uuid = True
+                except ValueError:
+                    pass
+                
+                from database.models.scheduling import AppointmentType
+                async with AsyncSessionLocal() as session:
+                    type_stmt = select(AppointmentType).where(AppointmentType.business_id == real_business_id, AppointmentType.is_active == True)
+                    type_res = await session.execute(type_stmt)
+                    active_types = type_res.scalars().all()
+                
+                if active_types:
+                    resolved_type = None
+                    if is_valid_uuid:
+                        for at in active_types:
+                            if str(at.id) == str(apt_type_id):
+                                resolved_type = at
+                                break
+                    
+                    if not resolved_type:
+                        apt_type_id_lower = str(apt_type_id).lower()
+                        for at in active_types:
+                            at_name_lower = at.name.lower()
+                            if at_name_lower in apt_type_id_lower or apt_type_id_lower in at_name_lower:
+                                resolved_type = at
+                                break
+                        if not resolved_type:
+                            resolved_type = active_types[0]
+                    
+                    apt_type_id = resolved_type.id
+                
+                start_at_str = str(start_at_str).strip()
+                # Strip trailing 'Z' or 'z' for Python 3.9 compatibility
+                if start_at_str.endswith('Z') or start_at_str.endswith('z'):
+                    start_at_str = start_at_str[:-1]
+                
+                start_at = None
+                # Try common formats first
+                for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M"):
+                    try:
+                        start_at = datetime.strptime(start_at_str[:19], fmt)
+                        break
+                    except ValueError:
+                        continue
+                
+                if not start_at:
+                    start_at = datetime.fromisoformat(start_at_str)
+                    if start_at.tzinfo is not None:
+                        start_at = start_at.replace(tzinfo=None)
+                
+                # Correct date if year is wrong or date is in the past
+                today_date = datetime.utcnow().date()
+                if start_at.date() < today_date or start_at.year < 2026:
+                    msg_lower = body.message.lower()
+                    target_date = today_date
+                    if "tomorrow" in msg_lower:
+                        target_date = today_date + timedelta(days=1)
+                    else:
+                        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                        for day_name in day_names:
+                            if day_name in msg_lower:
+                                for i in range(4):
+                                    d = today_date + timedelta(days=i)
+                                    if d.strftime("%A").lower() == day_name:
+                                        target_date = d
+                                        break
+                                break
+                    start_at = datetime.combine(target_date, start_at.time())
                 
                 # Attempt booking
                 book_res = await scheduling_service.book_appointment(
                     business_id=real_business_id,
-                    appointment_type_id=booking_data['appointment_type_id'],
+                    appointment_type_id=apt_type_id,
                     start_at=start_at,
                     lead_id=lead_id,
                     conversation_id=f"{real_business_id}:{body.user_id}",
@@ -1299,6 +1821,42 @@ async def web_chat(body: WebMessage):
                     logger.info(f"[Chat] Triggering 'appointment_booked' for email: {customer_email}")
                     await workflow_engine.trigger_workflow(real_business_id, "appointment_booked", trigger_data)
                     
+                    # Direct Email Send to Customer with Google Calendar link
+                    if customer_email:
+                        from services.email_service import EmailService
+                        email_subject = f"Appointment Confirmed: {biz_name} Call"
+                        email_html = f"""
+                        <div style="font-family: sans-serif; padding: 20px; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 8px;">
+                            <h2 style="color: #4f46e5; margin-top: 0;">Appointment Confirmed!</h2>
+                            <p>Hi {customer_name},</p>
+                            <p>Your appointment with <strong>{biz_name}</strong> has been successfully scheduled.</p>
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+                            <p><strong>Time:</strong> {start_at.strftime('%A, %B %d, %Y at %I:%M %p')} UTC</p>
+                            <p>Please click the button below to add this call to your Google Calendar:</p>
+                            <p style="text-align: center; margin: 30px 0;">
+                                <a href="{cal_link}" style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);">Add to Google Calendar</a>
+                            </p>
+                            <p style="color: #666; font-size: 12px; margin-bottom: 0;">Automated booking via InteracAI.</p>
+                        </div>
+                        """
+                        logger.info(f"[Chat] Sending direct confirmation email to {customer_email}")
+                        import asyncio
+                        async def send_and_log():
+                            try:
+                                success, err = await EmailService.send_email(
+                                    to=customer_email,
+                                    subject=email_subject,
+                                    html_content=email_html,
+                                    business_id=real_business_id,
+                                    bypass_active=True
+                                )
+                                with open("email_debug.txt", "a") as f:
+                                    f.write(f"[{datetime.utcnow().isoformat()}] Sent to {customer_email}. Success: {success}, Error: {err}\n")
+                            except Exception as e:
+                                with open("email_debug.txt", "a") as f:
+                                    f.write(f"[{datetime.utcnow().isoformat()}] Exception sending to {customer_email}: {str(e)}\n")
+                        asyncio.create_task(send_and_log())
+                    
                     # 3. Inform AI response
                     ai_reply = ai_reply.replace(booking_match.group(0), "").strip()
                     
@@ -1312,7 +1870,19 @@ async def web_chat(body: WebMessage):
                     # Clear optimistic reply and replace with failure
                     ai_reply = "I'm sorry, I tried to book that time but it just became unavailable. Could we try another slot?"
             except Exception as e:
-                logger.error(f"[Chat] Booking processing error: {e}")
+                import traceback
+                error_tb = traceback.format_exc()
+                logger.error(f"[Chat] Booking processing error: {e}\n{error_tb}")
+                try:
+                    with open("booking_error_debug.txt", "w") as f:
+                        f.write(f"Timestamp: {datetime.utcnow().isoformat()}\n")
+                        f.write(f"Exception: {str(e)}\n")
+                        f.write(f"Traceback:\n{error_tb}\n")
+                        f.write(f"AI Reply: {ai_reply}\n")
+                        if 'booking_match' in locals() and booking_match:
+                            f.write(f"Booking Match: {booking_match.group(0)}\n")
+                except Exception as write_err:
+                    logger.error(f"Failed to write booking debug file: {write_err}")
                 ai_reply = "I encountered an error processing the booking. Please try again or contact support."
 
         # Final cleanup of any remaining internal markers

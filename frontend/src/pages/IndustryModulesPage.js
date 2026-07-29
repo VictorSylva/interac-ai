@@ -43,6 +43,36 @@ const MODULE_METADATA = {
     color: 'from-green-500/20 to-emerald-500/10 text-green-400 border-green-500/30',
     btnBg: 'bg-green-600 hover:bg-green-500',
     tags: ['TIN Taxpayer Dossier', 'POS Tax Evasion Radar', 'LGA Revenue Yield']
+  },
+  module_church: {
+    icon: BookOpen,
+    color: 'from-rose-500/20 to-orange-500/10 text-rose-400 border-rose-500/30',
+    btnBg: 'bg-rose-600 hover:bg-rose-500',
+    tags: ['Volunteer Schedule', 'Givings Ledger', 'Attendance Tracker']
+  },
+  module_government: {
+    icon: Landmark,
+    color: 'from-indigo-500/20 to-blue-500/10 text-indigo-400 border-indigo-500/30',
+    btnBg: 'bg-indigo-600 hover:bg-indigo-500',
+    tags: ['Case Management', 'Citizen Directory', 'Incident Dispatch']
+  },
+  module_manufacturing: {
+    icon: ShieldCheck,
+    color: 'from-yellow-500/20 to-orange-500/10 text-yellow-400 border-yellow-500/30',
+    btnBg: 'bg-yellow-600 hover:bg-yellow-500',
+    tags: ['CNC Asset Health', 'Production Order', 'Quality Control']
+  },
+  module_education: {
+    icon: Stethoscope,
+    color: 'from-cyan-500/20 to-blue-500/10 text-cyan-400 border-cyan-500/30',
+    btnBg: 'bg-cyan-600 hover:bg-cyan-500',
+    tags: ['Student Enrollments', 'Class Attendance', 'AI Student Tutor']
+  },
+  module_agriculture: {
+    icon: Building2,
+    color: 'from-emerald-500/20 to-green-500/10 text-emerald-400 border-emerald-500/30',
+    btnBg: 'bg-emerald-600 hover:bg-emerald-500',
+    tags: ['Farm Field Soil', 'Livestock Tracker', 'Crop Yield Forecast']
   }
 };
 

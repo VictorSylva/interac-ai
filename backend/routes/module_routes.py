@@ -10,6 +10,7 @@ import logging
 
 from database.session import get_db
 from services.module_registry import module_registry
+from services.auth_service import require_permission, get_current_user
 
 
 logger = logging.getLogger(__name__)
@@ -24,21 +25,30 @@ def list_available_modules():
 
 
 @router.get("/installed")
-def list_installed_modules(
-    org_id: str = Query(..., description="Organization/Business ID")
+async def list_installed_modules(
+    org_id: str = Query(..., description="Organization/Business ID"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
 ):
     """List Industry Modules currently installed/active for an organization."""
-    return module_registry.get_installed_modules_for_org(org_id)
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != org_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
+    return await module_registry.get_installed_modules_for_org(org_id, db)
+
 
 
 @router.post("/install")
 async def install_module(
     payload: Dict[str, Any],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_permission("module.install"))
 ):
     """Install/enable an Industry Module for an organization."""
     org_id = payload.get("org_id")
     module_id = payload.get("module_id")
+
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != org_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
 
     if not org_id or not module_id:
         raise HTTPException(status_code=400, detail="Missing required parameters: 'org_id' and 'module_id'")
@@ -53,11 +63,15 @@ async def install_module(
 @router.post("/uninstall")
 async def uninstall_module(
     payload: Dict[str, Any],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_permission("module.install"))
 ):
     """Uninstall/disable an Industry Module for an organization."""
     org_id = payload.get("org_id")
     module_id = payload.get("module_id")
+
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != org_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
 
     if not org_id or not module_id:
         raise HTTPException(status_code=400, detail="Missing required parameters: 'org_id' and 'module_id'")

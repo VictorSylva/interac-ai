@@ -126,7 +126,8 @@ async def track_conversation(business_id: str, user_id: str) -> bool:
                     conversation_start_at=now,
                     last_message_at=now,
                     last_timestamp=now,
-                    is_active=True
+                    is_active=True,
+                    department='general'
                 )
                 session.add(convo)
                 await session.flush()

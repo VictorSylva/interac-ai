@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, Calendar, Phone, Activity, Shield, Check, ShoppingCart, Layers } from 'lucide-react';
+import { 
+  LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, 
+  Calendar, Phone, Activity, Shield, Check, ShoppingCart, Layers, Heart, Landmark,
+  UserCheck, Key, Briefcase, Wrench, Coffee, Package, Receipt
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config';
 import SubscriptionBanner from './SubscriptionBanner';
 
 export default function DashboardLayout() {
-  const { logout, userRole, currentUser } = useAuth();
+  const { logout, userRole, currentUser, activeDept, hasPermission } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -83,26 +87,57 @@ export default function DashboardLayout() {
     { icon: Shield, label: 'Billing & Subscription', path: '/dashboard/subscription', roles: ['owner', 'admin'] },
   ];
 
-  // Dynamically inject industry module UI extension routes
+  // Dynamically inject industry module UI extension routes with permission validations
   const moduleMenuItems = [];
   installedModules.forEach(mod => {
     if (mod.ui_extensions && Array.isArray(mod.ui_extensions.routes)) {
       mod.ui_extensions.routes.forEach(r => {
         let iconComp = Activity;
-        if (mod.id === 'module_hotels') iconComp = Activity;
-        else if (mod.id === 'module_nigeria_irs') iconComp = Shield;
-        else if (mod.id === 'module_retail') iconComp = ShoppingCart;
-        else if (mod.id === 'module_estate') iconComp = Shield;
-        else if (mod.id === 'module_hospital') iconComp = Activity;
-        else if (mod.id === 'module_bible_translation') iconComp = Zap;
+        const iconMap = {
+          'Calendar': Calendar,
+          'UserCheck': UserCheck,
+          'Key': Key,
+          'Briefcase': Briefcase,
+          'Wrench': Wrench,
+          'Coffee': Coffee,
+          'Package': Package,
+          'Receipt': Receipt,
+          'BarChart2': BarChart2
+        };
+        if (r.icon && iconMap[r.icon]) {
+          iconComp = iconMap[r.icon];
+        } else if (mod.id === 'module_hotels') {
+          iconComp = Activity;
+        } else if (mod.id === 'module_nigeria_irs') {
+          iconComp = Shield;
+        } else if (mod.id === 'module_retail') {
+          iconComp = ShoppingCart;
+        } else if (mod.id === 'module_estate') {
+          iconComp = Shield;
+        } else if (mod.id === 'module_hospital') {
+          iconComp = Activity;
+        } else if (mod.id === 'module_bible_translation') {
+          iconComp = Zap;
+        } else if (mod.id === 'module_church') {
+          iconComp = Heart;
+        } else if (mod.id === 'module_government') {
+          iconComp = Landmark;
+        } else if (mod.id === 'module_manufacturing') {
+          iconComp = Settings;
+        } else if (mod.id === 'module_education') {
+          iconComp = Activity;
+        } else if (mod.id === 'module_agriculture') {
+          iconComp = Layers;
+        }
 
         moduleMenuItems.push({
           icon: iconComp,
           label: r.title,
           path: `/dashboard${r.path}`,
-          roles: ['owner', 'admin'],
+          roles: ['owner', 'admin', 'support_agent', 'agent'], // Allow general base access, checked against department below
           isExtension: true,
-          moduleName: mod.name
+          moduleName: mod.name,
+          modulePermissions: mod.permissions || []
         });
       });
     }
@@ -112,10 +147,88 @@ export default function DashboardLayout() {
   const allMenuItems = [...baseMenuItems, ...moduleMenuItems];
 
   const menuItems = allMenuItems.filter(item => {
+      // ALWAYS keep Settings and Home in sidebar for preview switching/recovery
+      if (item.label === 'Settings & Profile' || item.label === 'Home') return true;
+
       if (!userRole) return false;
       const role = userRole.toLowerCase();
-      return item.roles.includes(role) || role === 'owner';
+      const userDept = activeDept?.toLowerCase();
+
+      // Owner and super admin bypass basic filters
+      if (role === 'owner' || role === 'super_admin') return true;
+
+      // 1. Validate against granular permissions
+      if (hasPermission) {
+          const mapping = {
+              'Conversations': 'conversation.reply',
+              'Customers (CRM)': 'customer.read',
+              'Business Analytics': 'hotel.analytics.view',
+              'Operational Insights': 'hotel.analytics.view',
+              'Workflows & Automations': 'workflow.manage',
+              'Commerce & Sales': 'hotel.finance.read',
+              'Scheduling': 'hotel.reservations.read',
+              'WhatsApp Integration': 'workflow.manage',
+              'Security & Surveillance': 'security.cameras.view',
+              'Industry Modules': 'module.install',
+              'Billing & Subscription': 'billing.manage'
+          };
+          const requiredPermission = mapping[item.label];
+          if (requiredPermission && !hasPermission(requiredPermission)) {
+              return false;
+          }
+      }
+
+      // 2. Filter by User Department Workspace (Applies to everyone)
+      if (userDept && userDept !== 'general') {
+          // If it's a dynamic module route
+          if (item.isExtension && item.modulePermissions) {
+              if (item.path.includes('/hotels/')) {
+                  const pathDepts = {
+                      '/hotels/reservations': ['frontdesk', 'reception', 'general_manager', 'owner', 'admin'],
+                      '/hotels/frontdesk': ['frontdesk', 'reception', 'general_manager', 'owner', 'admin'],
+                      '/hotels/rooms': ['frontdesk', 'reception', 'housekeeping', 'maintenance', 'general_manager', 'owner', 'admin'],
+                      '/hotels/housekeeping': ['housekeeping', 'laundry', 'general_manager', 'owner', 'admin'],
+                      '/hotels/maintenance': ['maintenance', 'general_manager', 'owner', 'admin'],
+                      '/hotels/restaurant': ['restaurant', 'kitchen', 'bar', 'general_manager', 'owner', 'admin'],
+                      '/hotels/inventory': ['store', 'kitchen', 'housekeeping', 'general_manager', 'owner', 'admin'],
+                      '/hotels/finance': ['accounts', 'finance', 'general_manager', 'owner', 'admin'],
+                      '/hotels/analytics': ['general_manager', 'owner', 'admin', 'accounts', 'finance']
+                  };
+                  const routeKey = Object.keys(pathDepts).find(key => item.path.endsWith(key));
+                  if (routeKey && !pathDepts[routeKey].includes(userDept)) {
+                      return false;
+                  }
+              } else {
+                  const hasDeptPermission = item.modulePermissions.some(
+                      p => p.department.toLowerCase() === userDept
+                  );
+                  if (!hasDeptPermission) return false;
+              }
+          }
+          
+          // Base menu items mapping (e.g. Conversations, Scheduling)
+          const deptMapping = {
+              security: ['Home', 'Security & Surveillance', 'Settings & Profile'],
+              finance: ['Home', 'Business Analytics', 'Billing & Subscription', 'Commerce & Sales', 'Settings & Profile'],
+              reception: ['Home', 'Conversations', 'Scheduling', 'Settings & Profile'],
+              counselor: ['Home', 'Conversations', 'Scheduling', 'Settings & Profile'],
+              operator: ['Home', 'Conversations', 'Settings & Profile'],
+              pastor: ['Home', 'Conversations', 'Scheduling', 'Settings & Profile'],
+              inventory: ['Home', 'Business Analytics', 'Settings & Profile'],
+              cashier: ['Home', 'Conversations', 'Settings & Profile']
+          };
+          
+          if (deptMapping[userDept]) {
+              if (!item.isExtension && !deptMapping[userDept].includes(item.label)) {
+                  return false;
+              }
+          }
+      }
+
+      // 3. Fallback to basic role access lists
+      return item.roles.includes(role) || (role === 'admin');
   });
+
 
 
   return (
@@ -135,7 +248,7 @@ export default function DashboardLayout() {
       `}>
         <div className="p-6 border-b border-white/10 flex justify-between items-center">
             <div className="flex items-center">
-                <img src="/interacAi-logo.png" alt="InteracAI Logo" className="h-10 w-auto brightness-0 invert" />
+                <img src="/interacAi-logo.png" alt="InteracAI Logo" className="h-14 w-auto brightness-0 invert" />
             </div>
             <button onClick={() => setIsSidebarOpen(false)} className="md:hidden text-white hover:text-blue-400">
                 <X size={24} />
@@ -230,7 +343,7 @@ export default function DashboardLayout() {
             />
         )}
 
-        <div className="p-4 md:p-8 flex-1 relative z-10 text-navy">
+        <div className="p-4 md:p-8 flex-1 relative text-navy">
           <Outlet />
         </div>
       </main>

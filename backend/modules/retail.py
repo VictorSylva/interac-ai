@@ -4,7 +4,7 @@ Configures retail entities (POS, Product, Supplier, CCTV) and loss prevention sk
 """
 
 from typing import Dict, Any, List
-from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec
+from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec, PermissionSpec, WidgetSpec
 from services.copilot_skill_registry import copilot_skill_registry
 
 
@@ -30,8 +30,17 @@ class RetailModule(BaseIndustryModule):
                 routes=[
                     UIRouteSpec(path="/retail/loss-prevention", component="LossPreventionPage", title="Loss Prevention Center", icon="ShieldAlert"),
                     UIRouteSpec(path="/retail/pos-analytics", component="POSAnalyticsPage", title="POS Transactions", icon="Receipt")
+                ],
+                dashboard_widgets=[
+                    WidgetSpec(id="retail_shrinkage", type="chart", title="Shrinkage Rate Trend", icon="TrendingDown", config={}),
+                    WidgetSpec(id="retail_pos_alerts", type="table", title="Active Register Feeds", icon="AlertCircle", config={})
                 ]
-            )
+            ),
+            permissions=[
+                PermissionSpec(department="inventory", role_tier="staff"),
+                PermissionSpec(department="cashier", role_tier="staff"),
+                PermissionSpec(department="security", role_tier="officer")
+            ]
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:

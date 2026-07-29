@@ -64,7 +64,13 @@ function App() {
             <Route path="estate/*" element={<IndustryExtensionPage />} />
             <Route path="hospital/*" element={<IndustryExtensionPage />} />
             <Route path="bible_translation/*" element={<IndustryExtensionPage />} />
+            <Route path="church/*" element={<IndustryExtensionPage />} />
+            <Route path="government/*" element={<IndustryExtensionPage />} />
+            <Route path="manufacturing/*" element={<IndustryExtensionPage />} />
+            <Route path="education/*" element={<IndustryExtensionPage />} />
+            <Route path="agriculture/*" element={<IndustryExtensionPage />} />
             <Route path="whatsapp-setup" element={<WhatsAppSetup />} />
+
 
 
             <Route path="scheduling" element={<Scheduling />} />

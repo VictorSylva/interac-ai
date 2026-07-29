@@ -6,6 +6,31 @@ import { AuthProvider } from './contexts/AuthContext';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
 
+// --- GLOBAL FETCH JWT INTERCEPTOR ---
+const originalFetch = window.fetch;
+window.fetch = async function (url, options = {}) {
+  const urlStr = url.toString();
+  const isBackendRequest = urlStr.includes('/api/') || urlStr.includes('/ws/');
+  
+  if (isBackendRequest) {
+    const storedUserStr = localStorage.getItem('interact_user');
+    if (storedUserStr) {
+      try {
+        const user = JSON.parse(storedUserStr);
+        if (user && user.token) {
+          options.headers = {
+            ...options.headers,
+            'Authorization': `Bearer ${user.token}`
+          };
+        }
+      } catch (e) {
+        console.error("[Fetch Interceptor] Error parsing token:", e);
+      }
+    }
+  }
+  return originalFetch(url, options);
+};
+
 // 1. Check for Platform Root (Main App)
 const rootEl = document.getElementById('root');
 if (rootEl) {

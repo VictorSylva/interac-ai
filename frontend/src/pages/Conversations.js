@@ -260,9 +260,11 @@ export default function Conversations() {
     }
   };
 
-  const filteredConversations = conversations.filter(c => 
-    filterDepartment === 'all' || (c.department && c.department.toLowerCase() === filterDepartment.toLowerCase())
-  );
+  const filteredConversations = conversations.filter(c => {
+    if (filterDepartment === 'all') return true;
+    const dept = (c.department || 'general').toLowerCase();
+    return dept === filterDepartment.toLowerCase();
+  });
 
   if (loading) {
       return <Loader message="Opening Secure Channels..." />;

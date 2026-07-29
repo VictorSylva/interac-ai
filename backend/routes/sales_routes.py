@@ -5,6 +5,7 @@ import logging
 import json
 from services.db_service import resolve_business_id, get_all_possible_business_ids
 from database.session import AsyncSessionLocal
+from services.auth_service import get_current_user, require_permission
 from sqlalchemy.future import select
 from sqlalchemy import or_
 from database.models.sales import SalesWebhookLog, Order, Delivery, Offer
@@ -63,15 +64,20 @@ class OrderCreateRequest(BaseModel):
 # --- Internal Dashboard Routes (/api/sales/*) ---
 
 @router.post("/offers")
-async def api_create_offer(data: OfferCreate):
+async def api_create_offer(data: OfferCreate, current_user: dict = Depends(get_current_user)):
     real_bid = await resolve_business_id(data.business_id)
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != real_bid:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
     offer, error_msg = await create_offer(real_bid, data.dict(exclude={"business_id"}))
     if not offer:
         raise HTTPException(status_code=400, detail=error_msg or "Failed to create offer")
     return {"status": "success", "id": offer.id, "slug": offer.slug}
 
 @router.get("/offers")
-async def api_get_offers(business_id: str):
+async def api_get_offers(business_id: str, current_user: dict = Depends(get_current_user)):
+    real_bid = await resolve_business_id(business_id)
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != real_bid:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
     possible_ids = await get_all_possible_business_ids(business_id)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
@@ -91,9 +97,11 @@ async def api_get_offers(business_id: str):
     ]
 
 @router.put("/offers/{offer_id}")
-async def api_update_offer(offer_id: int, data: OfferUpdate, request: Request):
+async def api_update_offer(offer_id: int, data: OfferUpdate, request: Request, current_user: dict = Depends(get_current_user)):
     business_id = request.query_params.get("business_id")
     real_bid = await resolve_business_id(business_id)
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != real_bid:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
     
     from services.sales_service import update_offer
     success = await update_offer(real_bid, offer_id, data.dict(exclude_unset=True))
@@ -102,7 +110,10 @@ async def api_update_offer(offer_id: int, data: OfferUpdate, request: Request):
     return {"status": "success"}
 
 @router.get("/orders")
-async def api_get_orders(business_id: str):
+async def api_get_orders(business_id: str, current_user: dict = Depends(get_current_user)):
+    real_bid = await resolve_business_id(business_id)
+    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != real_bid:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
     possible_ids = await get_all_possible_business_ids(business_id)
     
     async with AsyncSessionLocal() as session:

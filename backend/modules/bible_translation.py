@@ -4,7 +4,7 @@ Streamlines translation projects, field reports, community engagements, and dono
 """
 
 from typing import Dict, Any, List
-from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec
+from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec, PermissionSpec, WidgetSpec
 from services.copilot_skill_registry import copilot_skill_registry
 
 
@@ -30,8 +30,16 @@ class BibleTranslationModule(BaseIndustryModule):
                 routes=[
                     UIRouteSpec(path="/translation/projects", component="TranslationProjectsPage", title="Translation Projects", icon="BookOpen"),
                     UIRouteSpec(path="/translation/languages", component="LanguageCatalogPage", title="Language Catalog", icon="Globe")
+                ],
+                dashboard_widgets=[
+                    WidgetSpec(id="translation_progress_bar", type="metric", title="Overall Draft Progress", icon="CheckCircle", config={"value": "72%"}),
+                    WidgetSpec(id="translation_languages_count", type="metric", title="Active Languages", icon="Globe", config={"value": "45"})
                 ]
-            )
+            ),
+            permissions=[
+                PermissionSpec(department="translation", role_tier="staff"),
+                PermissionSpec(department="fieldops", role_tier="officer")
+            ]
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:

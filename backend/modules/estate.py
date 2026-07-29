@@ -4,7 +4,7 @@ Manages residents, visitor gate passes, vehicle ALPR logs, and guard patrol moni
 """
 
 from typing import Dict, Any, List
-from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec
+from modules.base import BaseIndustryModule, IndustryModuleManifest, EntityTypeSpec, UIRouteSpec, UIExtensionsSpec, PermissionSpec, WidgetSpec
 from services.copilot_skill_registry import copilot_skill_registry
 
 
@@ -30,8 +30,16 @@ class EstateModule(BaseIndustryModule):
                 routes=[
                     UIRouteSpec(path="/estate/visitor-access", component="VisitorAccessPage", title="Gate Access Logs", icon="Key"),
                     UIRouteSpec(path="/estate/patrol-monitoring", component="PatrolMonitoringPage", title="Patrol Radar", icon="Radio")
+                ],
+                dashboard_widgets=[
+                    WidgetSpec(id="estate_active_visitors", type="metric", title="Active Visitors Inside", icon="UserCheck", config={"value": "18"}),
+                    WidgetSpec(id="estate_security_alerts", type="radar", title="Gate Threat Levels", icon="ShieldAlert", config={})
                 ]
-            )
+            ),
+            permissions=[
+                PermissionSpec(department="security", role_tier="officer"),
+                PermissionSpec(department="management", role_tier="manager")
+            ]
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:

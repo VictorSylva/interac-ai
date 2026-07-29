@@ -11,6 +11,11 @@ from modules.estate import EstateModule
 from modules.hospital import HospitalModule
 from modules.hotels import HotelsModule
 from modules.nigeria_irs import NigeriaIRSModule
+from modules.church import ChurchModule
+from modules.government import GovernmentModule
+from modules.manufacturing import ManufacturingModule
+from modules.education import EducationModule
+from modules.agriculture import AgricultureModule
 
 
 logger = logging.getLogger(__name__)
@@ -24,7 +29,12 @@ async def load_all_industry_modules(default_org_id: str = "default_business") ->
         EstateModule(),
         HospitalModule(),
         HotelsModule(),
-        NigeriaIRSModule()
+        NigeriaIRSModule(),
+        ChurchModule(),
+        GovernmentModule(),
+        ManufacturingModule(),
+        EducationModule(),
+        AgricultureModule()
     ]
 
     for mod in modules:

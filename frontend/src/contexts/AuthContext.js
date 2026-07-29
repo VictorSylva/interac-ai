@@ -11,8 +11,26 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
-  const [userRole, setUserRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [previewRole, setPreviewRole] = useState(localStorage.getItem('interact_preview_role') || null);
+  const [previewDept, setPreviewDept] = useState(localStorage.getItem('interact_preview_dept') || null);
+
+  const activeRole = previewRole || currentUser?.role || null;
+  const activeDept = previewDept || currentUser?.department || 'general';
+
+  function setLocalPreview(dept, role) {
+    setPreviewDept(dept);
+    setPreviewRole(role);
+    localStorage.setItem('interact_preview_dept', dept);
+    localStorage.setItem('interact_preview_role', role);
+  }
+
+  function clearLocalPreview() {
+    setPreviewDept(null);
+    setPreviewRole(null);
+    localStorage.removeItem('interact_preview_dept');
+    localStorage.removeItem('interact_preview_role');
+  }
 
   function signup(email, password, businessName = "New Business") {
     return fetch(`${API_BASE_URL}/api/auth/register`, {
@@ -55,10 +73,8 @@ export function AuthProvider({ children }) {
             throw new Error(err.detail || "Login failed");
         }
         const data = await res.json();
-        const user = data.user;
-        user.uid = user.id;
+        const user = { ...data.user, uid: data.user.id, token: data.token };
         setCurrentUser(user);
-        setUserRole(user.role);
         localStorage.setItem('interact_user', JSON.stringify(user));
         return user;
     });
@@ -67,7 +83,7 @@ export function AuthProvider({ children }) {
 
   function logout() {
     setCurrentUser(null);
-    setUserRole(null);
+    clearLocalPreview();
     localStorage.removeItem('interact_user');
     return Promise.resolve();
   }
@@ -107,7 +123,6 @@ export function AuthProvider({ children }) {
         try {
             const user = JSON.parse(stored);
             setCurrentUser(user);
-            setUserRole(user.role);
 
             // Fetch fresh status to ensure business_id and plan_tier are up-to-date
             const bid = user.business_id || user.email;
@@ -136,14 +151,72 @@ export function AuthProvider({ children }) {
   }, []);
 
 
+  function updateProfile(userId, department, role) {
+    return fetch(`${API_BASE_URL}/api/auth/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, department, role })
+    }).then(async res => {
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Failed to update profile");
+        }
+        const data = await res.json();
+        const updatedUser = { 
+            ...currentUser, 
+            role: data.user.role, 
+            department: data.user.department,
+            permissions: data.user.permissions || currentUser.permissions
+        };
+        setCurrentUser(updatedUser);
+        localStorage.setItem('interact_user', JSON.stringify(updatedUser));
+        return updatedUser;
+    });
+  }
+
+  function acceptInvitation(token, password) {
+    return fetch(`${API_BASE_URL}/api/auth/accept-invitation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password })
+    }).then(async res => {
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Failed to accept invitation");
+        }
+        const data = await res.json();
+        const user = { ...data.user, uid: data.user.id, token: data.token };
+        setCurrentUser(user);
+        localStorage.setItem('interact_user', JSON.stringify(user));
+        return user;
+    });
+  }
+
+  function hasPermission(permission) {
+    const role = activeRole?.toLowerCase();
+    if (role === 'owner' || role === 'super_admin') {
+      return true;
+    }
+    const permissions = currentUser?.permissions || [];
+    return permissions.includes(permission);
+  }
+
   const value = {
     currentUser,
-    userRole,
+    userRole: activeRole, // Map preview role seamlessly
+    activeDept,
+    activeRole,
+    setLocalPreview,
+    clearLocalPreview,
     login,
     signup,
     logout,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    updateProfile,
+    acceptInvitation,
+    hasPermission,
+    permissions: currentUser?.permissions || []
   };
 
   return (

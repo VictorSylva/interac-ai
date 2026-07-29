@@ -36,8 +36,9 @@ class WorkflowEngine:
             return []
         
         # 0.2 Track Conversation (unique user within 24h)
-        user_id = trigger_data.get("from_number") or trigger_data.get("user_id") or "unknown"
-        await track_conversation(business_id, user_id)
+        user_id = trigger_data.get("from_number") or trigger_data.get("user_id")
+        if user_id and user_id != "unknown":
+            await track_conversation(business_id, user_id)
 
         async with AsyncSessionLocal() as session:
             # 1. Resolve all linked IDs (Email, UUID, etc.)
@@ -787,6 +788,33 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                 return {"action_result": "routed", "department": department}
             else:
                 return {"action_result": "failed", "error": "No user identifier found for routing"}
+                
+        elif action_type == "block_room":
+            # Action: Block room automatically on critical maintenance
+            room_number = context.get("trigger", {}).get("room_number")
+            business_id = context.get("business_id")
+            if room_number and business_id:
+                async with AsyncSessionLocal() as session:
+                    from database.models.dynamic_entity import EntityV2, EntityType
+                    res = await session.execute(
+                        select(EntityType).where(EntityType.org_id == business_id, EntityType.code == "hotel_room")
+                    )
+                    et = res.scalar_one_or_none()
+                    if et:
+                        room_stmt = select(EntityV2).where(
+                            EntityV2.org_id == business_id,
+                            EntityV2.entity_type_id == et.id,
+                            EntityV2.display_label == room_number
+                        )
+                        room_res = await session.execute(room_stmt)
+                        room = room_res.scalar_one_or_none()
+                        if room:
+                            attrs = dict(room.attributes or {})
+                            attrs["status"] = "OUT_OF_SERVICE"
+                            room.attributes = attrs
+                            await session.commit()
+                            return {"action_result": "blocked", "room": room_number}
+            return {"action_result": "failed", "error": "Room not found or no business_id"}
         
         return {"action_result": "unknown_type"}
 

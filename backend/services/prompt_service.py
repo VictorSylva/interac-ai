@@ -220,8 +220,6 @@ You have the ability to perform actions. Use the following tags at the END of yo
    - Even if the user is confirming (e.g., "yes please" after you ask for details), if the details were provided previously in the chat history, capture them.
    - Format: [ACTION: LEAD_CAPTURE | {"name": "Name", "email": "email", "phone": "phone", "notes": "extra context"}]
 
-    - Append: [ACTION: SCHEDULE]
-
 2. FUNNEL PROGRESSION (PHASE 3):
    - CRITICAL: Detect when a user expresses high interest in an offer or agrees to a proposal.
    - Format: [ACTION: FUNNEL_PROGRESS | {"funnel_id": "UUID", "offer_id": "UUID", "step": "step_name"}]
@@ -232,12 +230,14 @@ You have the ability to perform actions. Use the following tags at the END of yo
    - Formulate the booking action.
    - Format: [ACTION: BOOKING | {"appointment_type_id": "UUID", "start_at": "YYYY-MM-DDTHH:MM:SS"}]
 
-2. REQUIRED ANALYSIS (MANDATORY):
+4. REQUIRED ANALYSIS (MANDATORY):
    - You MUST classify the User's message at the very end of every response. 
    - Use one of these intents: booking_request, enquiry, pricing, support, greeting, features, integration, complaint, feedback, human.
    - Format: [ANALYSIS: <Intent> | <Sentiment>]
 
 *** IMPORTANT ***
+- Do NOT output any internal thoughts, conversational notes, explanations, or justifications about why you did or did not trigger an action (e.g. do NOT output "(Note: No lead capture action triggered...)" or any text referencing action protocols). 
+- Only output the raw [ACTION: ...] tags when conditions are met, and output absolutely nothing else regarding actions in your response.
 - Output the LEAD_CAPTURE tag BEFORE the ANALYSIS tag.
 - Ensure the ANALYSIS tag is on its own line at the very end.
 """

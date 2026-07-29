@@ -3,8 +3,23 @@ import httpx
 import logging
 import json
 from services.prompt_service import prompt_service
+import re
 
 logger = logging.getLogger(__name__)
+
+def clean_markdown_for_chats(text: str) -> str:
+    if not text:
+        return text
+    # Replace headers (e.g., "### Header") with just the header text
+    text = re.sub(r'^(?:#+)\s*(.*?)$', r'\1', text, flags=re.MULTILINE)
+    # Remove bold/italic markers like **, ***, *, __, _
+    text = re.sub(r'\*\*+(.*?)\*\*+', r'\1', text)
+    text = re.sub(r'\*+(.*?)\*+', r'\1', text)
+    text = re.sub(r'__+(.*?)__+', r'\1', text)
+    text = re.sub(r'_+(.*?)_+', r'\1', text)
+    # Remove raw HTML-like tags
+    text = re.sub(r'<[^>]*>', '', text)
+    return text
 
 from config import config
 
@@ -70,7 +85,8 @@ async def generate_response(user_message: str, conversation_history: list = None
 
         # 2. Track Conversation (24h window)
         # This will increment the counter only if it's a new 24h session for this user
-        await track_conversation(business_id, user_id)
+        if user_id and user_id != "unknown":
+            await track_conversation(business_id, user_id)
     
     # Resolve Context (Phase 3)
     lead_context = None
@@ -111,6 +127,13 @@ async def generate_response(user_message: str, conversation_history: list = None
             logger.error(f"Error resolving AI Context for Phase 3: {e}")
             # Fallback to provided or default prompt if resolution fails
             pass
+
+    # Enforce plain text output with no raw markdown headers/bolding in chats
+    format_instruction = "IMPORTANT: Do NOT use markdown headers (e.g. #, ##, ###, ####) or markdown bolding/italics (e.g. **). Instead, format headers using normal text in UPPERCASE, and use plain text spacing and dashes for lists."
+    if system_instruction:
+        system_instruction = f"{system_instruction}\n\n{format_instruction}"
+    else:
+        system_instruction = format_instruction
 
     # Safety Check (Prompt Injection / Harmful Content)
     if not prompt_service.check_safety(user_message):
@@ -154,7 +177,7 @@ async def generate_response(user_message: str, conversation_history: list = None
             except Exception as e:
                 logger.error(f"Post-AI token/log error: {e}")
         
-        return ai_content
+        return clean_markdown_for_chats(ai_content)
                 
     except httpx.TimeoutException:
         logger.error(f"AI TIMEOUT: Provider {PRIMARY_PROVIDER} did not respond within 40s.")

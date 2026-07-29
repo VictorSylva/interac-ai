@@ -22,9 +22,23 @@ class UIRouteSpec(BaseModel):
     icon: Optional[str] = "Extension"
 
 
+class PermissionSpec(BaseModel):
+    department: str = Field(..., description="Department e.g., 'security', 'frontdesk'")
+    role_tier: str = Field(..., description="Minimum role tier required e.g., 'officer', 'manager'")
+    allow_write: bool = Field(True, description="Whether write access is permitted")
+
+
+class WidgetSpec(BaseModel):
+    id: str = Field(..., description="Unique widget ID")
+    type: str = Field(..., description="Widget type e.g., 'metric', 'chart', 'radar'")
+    title: str = Field(..., description="Widget title")
+    icon: Optional[str] = "Boxes"
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+
 class UIExtensionsSpec(BaseModel):
     routes: List[UIRouteSpec] = Field(default_factory=list)
-    dashboard_widgets: List[str] = Field(default_factory=list)
+    dashboard_widgets: List[WidgetSpec] = Field(default_factory=list)
 
 
 class IndustryModuleManifest(BaseModel):
@@ -40,6 +54,8 @@ class IndustryModuleManifest(BaseModel):
     knowledge_packs: List[str] = Field(default_factory=list)
     copilot_skills: List[str] = Field(default_factory=list)
     ui_extensions: UIExtensionsSpec = Field(default_factory=UIExtensionsSpec)
+    permissions: List[PermissionSpec] = Field(default_factory=list)
+
 
 
 class BaseIndustryModule(ABC):
