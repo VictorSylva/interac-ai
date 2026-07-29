@@ -329,7 +329,8 @@ async def startup_event():
                     "ALTER TABLE users ADD COLUMN {ine} status VARCHAR DEFAULT 'active'",
                     "ALTER TABLE users ADD COLUMN {ine} email_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN {ine} verification_token VARCHAR",
-                    "ALTER TABLE users ADD COLUMN {ine} role_id VARCHAR"
+                    "ALTER TABLE users ADD COLUMN {ine} role_id VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} department_id VARCHAR"
                 ]
                 
                 for stmt in statements:
