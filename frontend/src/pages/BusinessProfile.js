@@ -12,6 +12,7 @@ import {
   Upload,
   Users,
   Shield,
+  Copy,
 } from "lucide-react";
 import { API_BASE_URL } from "../config";
 import { useAuth } from "../contexts/AuthContext";
@@ -799,8 +800,21 @@ export default function BusinessProfile() {
                           <td className="p-4 font-medium text-navy">{inv.email}</td>
                           <td className="p-4 capitalize text-grey-600">{inv.role}</td>
                           <td className="p-4 capitalize text-grey-600">{inv.department}</td>
-                          <td className="p-4">
+                          <td className="p-4 flex items-center gap-4">
                             <button
+                              type="button"
+                              onClick={() => {
+                                const link = `${window.location.origin}/accept-invitation?token=${inv.id}`;
+                                navigator.clipboard.writeText(link);
+                                alert("Invitation link copied to clipboard!");
+                              }}
+                              className="text-indigo-600 hover:text-indigo-800 font-semibold text-xs flex items-center gap-1"
+                              title="Copy activation link for employee"
+                            >
+                              <Copy size={14} /> Copy Link
+                            </button>
+                            <button
+                              type="button"
                               onClick={() => handleCancelInvite(inv.id)}
                               className="text-red-500 hover:text-red-700 font-semibold text-xs flex items-center gap-1"
                             >
