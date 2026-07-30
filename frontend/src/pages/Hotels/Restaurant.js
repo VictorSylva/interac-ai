@@ -21,6 +21,10 @@ export default function Restaurant({ orgId }) {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [targetRoom, setTargetRoom] = useState('');
 
+  // Settle Direct form
+  const [settleDirectModal, setSettleDirectModal] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('CASH');
+
   // Tab View state
   const [activeTab, setActiveTab] = useState('pos'); // 'pos' or 'menu'
 
@@ -254,6 +258,34 @@ export default function Restaurant({ orgId }) {
     }
   };
 
+  const handleSettleDirect = async (e) => {
+    e.preventDefault();
+    if (!selectedOrderId || !paymentMethod) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/hotels/restaurant/orders/${selectedOrderId}/settle-direct`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: orgId,
+          payment_method: paymentMethod
+        })
+      });
+      if (res.ok) {
+        setSettleDirectModal(false);
+        setPaymentMethod('CASH');
+        await fetchData();
+      } else {
+        const err = await res.json();
+        alert(err.detail || "Direct settlement failed.");
+      }
+    } catch (e) {
+      console.error("Direct settlement error:", e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const totalAmount = basket.reduce((acc, i) => acc + (i.price * i.qty), 0.0);
 
   return (
@@ -364,19 +396,29 @@ export default function Restaurant({ orgId }) {
                       
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-0.5 rounded text-[8px] font-bold ${
-                          o.attributes.payment_status === 'ROOM_CHARGE' 
+                          o.attributes.payment_status === 'ROOM_CHARGE' || o.attributes.payment_status === 'PAID'
                             ? 'bg-emerald-500/10 text-emerald-300' 
                             : 'bg-rose-500/10 text-rose-300'
                         }`}>
                           {o.attributes.payment_status}
                         </span>
                         {o.attributes.payment_status === 'UNPAID' && (
-                          <button 
-                            onClick={() => { setSelectedOrderId(o.id); setChargeRoomModal(true); }}
-                            className="px-3 py-1.5 rounded-xl bg-purple-600/30 text-purple-200 border border-purple-500/30 text-[10px] font-bold hover:bg-purple-600/50 flex items-center gap-1"
-                          >
-                            Charge Room <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button 
+                              type="button"
+                              onClick={() => { setSelectedOrderId(o.id); setChargeRoomModal(true); }}
+                              className="px-3 py-1.5 rounded-xl bg-purple-600/30 text-purple-200 border border-purple-500/30 text-[10px] font-bold hover:bg-purple-600/50 flex items-center gap-1"
+                            >
+                              Charge Room
+                            </button>
+                            <button 
+                              type="button"
+                              onClick={() => { setSelectedOrderId(o.id); setSettleDirectModal(true); }}
+                              className="px-3 py-1.5 rounded-xl bg-white/5 text-slate-200 border border-white/10 text-[10px] font-bold hover:bg-white/10 flex items-center gap-1"
+                            >
+                              Settle Direct
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -536,6 +578,42 @@ export default function Restaurant({ orgId }) {
                 className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg"
               >
                 {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Authorize Room Folio Charge"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settle Direct Modal */}
+      {settleDirectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-sm glass border border-white/15 p-6 rounded-3xl shadow-2xl space-y-6">
+            <div className="flex justify-between items-center border-b border-white/10 pb-4">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Direct Order Settlement</h3>
+              <button type="button" onClick={() => setSettleDirectModal(false)} className="text-slate-400 hover:text-white text-xs">✕ Close</button>
+            </div>
+
+            <form onSubmit={handleSettleDirect} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-400 font-bold uppercase">Payment Method</label>
+                <select 
+                  required
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-white text-xs focus:outline-none focus:border-purple-500"
+                >
+                  <option value="CASH">Cash Payment</option>
+                  <option value="CARD">POS Card Terminal</option>
+                  <option value="TRANSFER">Bank Transfer</option>
+                </select>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={submitting} 
+                className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg"
+              >
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirm Immediate Settlement"}
               </button>
             </form>
           </div>

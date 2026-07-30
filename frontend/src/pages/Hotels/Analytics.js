@@ -29,6 +29,11 @@ export default function Analytics({ orgId }) {
   };
 
   const occupancy = report?.occupancy_rate || '0.0%';
+  const pct = parseFloat(occupancy.replace('%', '')) || 0;
+  const radius = 45;
+  const strokeWidth = 8;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (pct / 100) * circumference;
   const adr = report?.average_daily_rate || 0.0;
   const revpar = report?.revpar || 0.0;
   const totalRev = report?.total_room_revenue || 0.0;
@@ -125,9 +130,33 @@ export default function Analytics({ orgId }) {
             <div className="glass border border-white/10 p-6 rounded-3xl space-y-4">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">Occupancy Target Index</h3>
               <div className="flex flex-col items-center justify-center py-6 text-center space-y-3">
-                <div className="relative w-28 h-28 flex items-center justify-center rounded-full border-4 border-purple-500/20">
-                  <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin-slow" />
-                  <span className="text-xl font-black text-white">{occupancy}</span>
+                <div className="relative w-28 h-28 flex items-center justify-center">
+                  <svg className="w-full h-full transform -rotate-90">
+                    {/* Background track */}
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r={radius}
+                      className="text-slate-800"
+                      strokeWidth={strokeWidth}
+                      stroke="currentColor"
+                      fill="transparent"
+                    />
+                    {/* Progress arc */}
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r={radius}
+                      className="text-purple-500 transition-all duration-1000 ease-out"
+                      strokeWidth={strokeWidth}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={strokeDashoffset}
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="transparent"
+                    />
+                  </svg>
+                  <span className="absolute text-xl font-black text-white">{occupancy}</span>
                 </div>
                 <div className="text-[10px] text-slate-400 leading-relaxed max-w-[200px]">
                   Property occupancy index is healthy. Aim to cross 85% to maximize weekend yield.

@@ -884,6 +884,51 @@ async def post_order_to_room_charge(
     return {"status": "SUCCESS", "message": f"POS charge of ₦{total_amount} posted to Room {room_number}."}
 
 
+@router.post("/restaurant/orders/{order_id}/settle-direct")
+async def settle_restaurant_order_direct(
+    order_id: str,
+    payload: Dict[str, Any],
+    db: AsyncSession = Depends(get_db)
+):
+    """Settles a POS order ticket immediately via direct payment (Cash, Card, or Transfer)."""
+    org_id = payload.get("org_id")
+    payment_method = payload.get("payment_method", "CASH") # CASH, CARD, TRANSFER
+    
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Missing parameter 'org_id'")
+
+    # 1. Resolve order
+    order_stmt = select(EntityV2).where(EntityV2.id == order_id, EntityV2.org_id == org_id)
+    order_res = await db.execute(order_stmt)
+    order = order_res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order ticket not found")
+
+    order_attrs = dict(order.attributes or {})
+    total_amount = float(order_attrs.get("total_amount", 0.0))
+
+    # 2. Mark POS order payment status
+    order_attrs["payment_status"] = "PAID"
+    order_attrs["status"] = "COMPLETED"
+    order_attrs["payment_method"] = payment_method.upper()
+    order.attributes = order_attrs
+
+    # Log POS direct payment signal in Observation Bus
+    observation_service.record_observation(
+        db=db,
+        org_id=org_id,
+        source_channel="restaurant_pos",
+        observation_type="pos_direct_payment",
+        primary_entity_id=order_id,
+        location_label=f"Table {order_attrs.get('table_number')}",
+        payload={"order_id": order_id, "amount": total_amount, "payment_method": payment_method},
+        severity="INFO"
+    )
+
+    await db.commit()
+    return {"status": "SUCCESS", "message": f"POS order settled via direct {payment_method}."}
+
+
 # --- INVENTORY OPERATIONS ENDPOINTS ---
 
 @router.get("/inventory")
