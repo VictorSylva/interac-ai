@@ -33,6 +33,7 @@ export default function DashboardOverview() {
   const [reservations, setReservations] = useState([]);
   const [housekeeping, setHousekeeping] = useState([]);
   const [posOrders, setPosOrders] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const businessId = currentUser?.business_id || currentUser?.email || "default";
@@ -81,6 +82,11 @@ export default function DashboardOverview() {
             if (resHk.ok) {
                 const hkJson = await resHk.json();
                 setHousekeeping(Array.isArray(hkJson) ? hkJson : []);
+            }
+            const resRooms = await fetch(`${apiHost}/api/v1/entities?org_id=${encodeURIComponent(businessId)}&entity_type_code=hotel_room`);
+            if (resRooms.ok) {
+                const roomsJson = await resRooms.json();
+                setRooms(Array.isArray(roomsJson.items) ? roomsJson.items : []);
             }
         }
 
@@ -193,7 +199,7 @@ export default function DashboardOverview() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="glass p-6 rounded-2xl border border-white/10">
             <span className="text-xs text-indigo-400 font-bold uppercase tracking-wider">Rooms Occupied</span>
-            <h4 className="text-3xl font-bold text-white mt-2">{occupiedRooms} <span className="text-sm text-slate-500 font-medium">/ 10</span></h4>
+            <h4 className="text-3xl font-bold text-white mt-2">{occupiedRooms} <span className="text-sm text-slate-500 font-medium">/ {rooms.length || 0}</span></h4>
             <p className="text-xs text-slate-400 mt-2">Active guest keycards allocated</p>
           </div>
           <div className="glass p-6 rounded-2xl border border-white/10">
@@ -263,32 +269,39 @@ export default function DashboardOverview() {
             {/* Quick Rooms Matrix */}
             <div className="glass p-6 rounded-2xl">
               <h3 className="text-lg font-bold text-white mb-4">PMS Rooms Matrix</h3>
-              <div className="grid grid-cols-5 gap-4">
-                {[501, 502, 503, 504, 505].map((roomNum) => {
-                  const hasActive = reservations.some(r => r.attributes?.room_number === String(roomNum) && r.attributes?.checked_in && !r.attributes?.checked_out);
-                  const isDirty = housekeeping.some(h => h.room_number === String(roomNum) && h.status?.toLowerCase() === 'dirty');
-                  const isOOS = risks.some(r => r.entity_identifier === `Room ${roomNum}`);
-                  
-                  let statusColor = "bg-emerald-500/20 border-emerald-500/40 text-emerald-400";
-                  let label = "Vacant";
-                  if (isOOS) {
-                    statusColor = "bg-rose-500/20 border-rose-500/40 text-rose-400";
-                    label = "Out of Service";
-                  } else if (hasActive) {
-                    statusColor = "bg-indigo-500/20 border-indigo-500/40 text-indigo-300";
-                    label = "Occupied";
-                  } else if (isDirty) {
-                    statusColor = "bg-amber-500/20 border-amber-500/40 text-amber-400";
-                    label = "Dirty";
-                  }
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+                {rooms.length > 0 ? (
+                  rooms.map((room) => {
+                    const roomNum = room.display_label; // e.g. "Suite 01" or "501"
+                    const hasActive = reservations.some(r => r.attributes?.room_number === roomNum && r.attributes?.checked_in && !r.attributes?.checked_out);
+                    const isDirty = (room.attributes?.housekeeping || "").toLowerCase() === 'dirty';
+                    const isOOS = (room.attributes?.status || "").toUpperCase() === 'OUT_OF_SERVICE' || risks.some(r => r.entity_identifier === `Room ${roomNum}`);
+                    
+                    let statusColor = "bg-emerald-500/20 border-emerald-500/40 text-emerald-400";
+                    let label = "Vacant";
+                    if (isOOS) {
+                      statusColor = "bg-rose-500/20 border-rose-500/40 text-rose-400";
+                      label = "Out of Service";
+                    } else if (hasActive || (room.attributes?.status || "").toUpperCase() === 'OCCUPIED') {
+                      statusColor = "bg-indigo-500/20 border-indigo-500/40 text-indigo-300";
+                      label = "Occupied";
+                    } else if (isDirty) {
+                      statusColor = "bg-amber-500/20 border-amber-500/40 text-amber-400";
+                      label = "Dirty";
+                    }
 
-                  return (
-                    <div key={roomNum} className={`p-4 rounded-xl border ${statusColor} text-center flex flex-col justify-between h-24`}>
-                      <span className="text-lg font-black">{roomNum}</span>
-                      <span className="text-[10px] uppercase font-bold tracking-wider">{label}</span>
-                    </div>
-                  );
-                })}
+                    return (
+                      <div key={room.id} className={`p-4 rounded-xl border ${statusColor} text-center flex flex-col justify-between h-24 hover:scale-[1.02] transition-transform duration-200`}>
+                        <span className="text-sm font-bold truncate" title={roomNum}>{roomNum}</span>
+                        <span className="text-[10px] uppercase font-bold tracking-wider">{label}</span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="col-span-5 p-8 text-center text-slate-500 text-sm border border-white/5 rounded-xl bg-white/5">
+                    No registered rooms found. Go to Rooms Directory to add some.
+                  </div>
+                )}
               </div>
             </div>
           </div>
