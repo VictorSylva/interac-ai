@@ -21,6 +21,8 @@ services:
         value: "2"
       - key: ENVIRONMENT
         value: staging
+      - key: ENV
+        value: staging
 
       # AI Provider (OpenRouter)
       - key: OPENROUTER_API_KEY
