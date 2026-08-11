@@ -23,6 +23,4 @@ COPY backend/ .
 # Expose the API port
 EXPOSE 8000
 
-# The command is usually overridden by docker-compose, 
-# but we provide a default just in case.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"]

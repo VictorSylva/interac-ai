@@ -21,6 +21,8 @@ services:
         value: "2"
       - key: ENVIRONMENT
         value: production
+      - key: ENV
+        value: production
 
       # AI Provider (OpenRouter)
       - key: OPENROUTER_API_KEY

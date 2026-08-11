@@ -27,7 +27,13 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Override URL from env var
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/interact_db"))
+db_url = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/interact_db")
+if db_url:
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+config.set_main_option("sqlalchemy.url", db_url)
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
