@@ -35,4 +35,4 @@ git push origin staging
 
 Write-Host "--- [INTERAC AI] STAGING DEPLOYMENT COMPLETE ---" -ForegroundColor Green
 Write-Host "Frontend: https://interac-ai.web.app"
-Write-Host "Backend: https://interacai-backend-staging.onrender.com"
+Write-Host "Backend: https://interact-backend-staging.onrender.com (or your custom Render URL)"
