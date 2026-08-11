@@ -46,8 +46,8 @@ else:
     engine = create_async_engine(
         DATABASE_URL,
         echo=config.DEBUG,
-        pool_size=20,
-        max_overflow=10,
+        pool_size=4,
+        max_overflow=2,
         pool_recycle=1800
     )
 
