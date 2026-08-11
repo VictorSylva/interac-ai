@@ -8,8 +8,8 @@ Write-Host "--- [INTERAC AI] PRODUCTION DEPLOYMENT START ---" -ForegroundColor R
 
 # 1. Check current branch
 $branch = git rev-parse --abbrev-ref HEAD
-if ($branch -ne "main") {
-    Write-Host "ERROR: You must be on the 'main' branch to deploy to production. Current branch: $branch" -ForegroundColor Red
+if ($branch -ne "production") {
+    Write-Host "ERROR: You must be on the 'production' branch to deploy to production. Current branch: $branch" -ForegroundColor Red
     exit 1
 }
 
@@ -25,10 +25,10 @@ Write-Host "Deploying to Firebase Hosting (Production)..." -ForegroundColor Yell
 firebase deploy --only hosting
 if ($LASTEXITCODE -ne 0) { Write-Host "Firebase deployment failed!" -ForegroundColor Red; exit 1 }
 
-# 4. Push Backend to Main branch (Triggers Render production build)
-Write-Host "Pushing code to main branch..." -ForegroundColor Yellow
+# 4. Push Backend to Production branch (Triggers Render production build)
+Write-Host "Pushing code to production branch..." -ForegroundColor Yellow
 cd ..
-git push origin main
+git push origin production
 
 Write-Host "--- [INTERAC AI] PRODUCTION DEPLOYMENT COMPLETE ---" -ForegroundColor Green
 Write-Host "Live Site: https://interacai.com"
