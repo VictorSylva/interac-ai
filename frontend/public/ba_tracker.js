@@ -37,9 +37,13 @@
     };
 
     const track = (type, props = {}) => {
+        const path = window.location.pathname;
+        if (path.startsWith('/dashboard') || path.startsWith('/super-admin') || path.startsWith('/login') || path.startsWith('/reset-password') || path.startsWith('/accept-invitation')) {
+            return;
+        }
         eventQueue.push({
             type,
-            path: window.location.pathname,
+            path,
             timestamp: new Date().toISOString(),
             ...props
         });

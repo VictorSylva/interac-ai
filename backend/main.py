@@ -1113,67 +1113,100 @@ async def collect_behavior_analytics(req: BABatchRequest):
     return {"status": "success" if success else "failed"}
 
 @app.get("/api/behavior-analytics/dashboard")
-async def get_behavior_dashboard(business_id: str, days: int = 7):
-    """Fetch data for the new isolated Behavioral Analytics dashboard with real-time support."""
+async def get_behavior_dashboard(business_id: str, days: int = 7, traffic_type: str = "visitors"):
+    """Fetch data for the new isolated Behavioral Analytics dashboard with real-time support and filtering."""
     from database.models.behavior_analytics import BAAggregate, BASession, BAEvent
-    from sqlalchemy import func
+    from sqlalchemy import func, and_, not_, or_, text
+    import traceback
     
     bid = await resolve_business_id(business_id)
     now = datetime.utcnow()
     start_date = now - timedelta(days=days)
-    today_start = datetime.combine(now.date(), datetime.min.time())
+
+    exclude_paths = ["/dashboard", "/super-admin", "/login", "/reset-password", "/accept-invitation"]
+
+    def apply_path_filter(query):
+        if traffic_type == "dashboard":
+            # Must start with one of the exclude paths
+            return query.where(or_(*[BAEvent.path.like(f"{p}%") for p in exclude_paths]))
+        else:
+            # Must NOT start with any of the exclude paths
+            return query.where(and_(*[not_(BAEvent.path.like(f"{p}%")) for p in exclude_paths]))
 
     async with AsyncSessionLocal() as session:
         try:
-            # 1. Aggregates (Past days)
-            agg_stmt = select(BAAggregate).where(
-                BAAggregate.business_id == bid,
-                BAAggregate.date >= start_date
-            )
-            aggregates = (await session.execute(agg_stmt)).scalars().all()
+            # 1. Calculate dynamic chart data grouped by date
             chart_data = {}
-            for agg in aggregates:
-                d_str = agg.date.strftime("%Y-%m-%d")
-                if d_str not in chart_data: chart_data[d_str] = {"date": d_str}
-                chart_data[d_str][agg.metric_name] = agg.metric_value
-
-            # 2. Real-time stats for Today (not yet in aggregates)
-            today_str = now.strftime("%Y-%m-%d")
-            if today_str not in chart_data:
-                # Calculate real-time stats for today
-                today_sessions = (await session.execute(select(func.count(BASession.id)).where(
-                    BASession.business_id == bid, BASession.start_time >= today_start
-                ))).scalar() or 0
-                today_pvs = (await session.execute(select(func.count(BAEvent.id)).where(
-                    BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= today_start
-                ))).scalar() or 0
-                today_users = (await session.execute(select(func.count(func.distinct(BASession.visitor_id))).where(
-                    BASession.business_id == bid, BASession.start_time >= today_start
-                ))).scalar() or 0
-                
-                chart_data[today_str] = {
-                    "date": today_str,
-                    "sessions": today_sessions,
-                    "pageviews": today_pvs,
-                    "unique_users": today_users
+            for i in range(days + 1):
+                d = (now - timedelta(days=days - i)).strftime("%Y-%m-%d")
+                chart_data[d] = {
+                    "date": d,
+                    "sessions": 0,
+                    "pageviews": 0,
+                    "unique_users": 0
                 }
 
-            # 3. Top Pages (BAEvent)
+            # Query dynamic stats from BAEvent & BASession
+            stmt = select(
+                func.date(BAEvent.timestamp).label("date_label"),
+                func.count(BAEvent.id).label("pageviews"),
+                func.count(func.distinct(BAEvent.session_id)).label("sessions"),
+                func.count(func.distinct(BASession.visitor_id)).label("unique_users")
+            ).join(
+                BASession, BASession.id == BAEvent.session_id
+            ).where(
+                BAEvent.business_id == bid,
+                BAEvent.timestamp >= start_date
+            )
+            stmt = apply_path_filter(stmt)
+            stmt = stmt.group_by(func.date(BAEvent.timestamp)).order_by(text("date_label ASC"))
+            
+            res = await session.execute(stmt)
+            for row in res.all():
+                d_val = row[0]
+                if isinstance(d_val, datetime):
+                    d_str = d_val.strftime("%Y-%m-%d")
+                elif hasattr(d_val, "strftime"):
+                    d_str = d_val.strftime("%Y-%m-%d")
+                else:
+                    d_str = str(d_val)
+                
+                if d_str in chart_data:
+                    chart_data[d_str] = {
+                        "date": d_str,
+                        "pageviews": row[1] or 0,
+                        "sessions": row[2] or 0,
+                        "unique_users": row[3] or 0
+                    }
+
+            # 2. Top Pages
             pages_stmt = select(BAEvent.path, func.count(BAEvent.id).label("c")).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.path).order_by(text("c DESC")).limit(10)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "pageview",
+                BAEvent.timestamp >= start_date
+            )
+            pages_stmt = apply_path_filter(pages_stmt)
+            pages_stmt = pages_stmt.group_by(BAEvent.path).order_by(text("c DESC")).limit(10)
             top_pages = (await session.execute(pages_stmt)).all()
 
-            # 4. Top Clicks (BAEvent)
+            # 3. Top Clicks
             clicks_stmt = select(BAEvent.element_text, func.count(BAEvent.id).label("c")).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "click", BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.element_text).order_by(text("c DESC")).limit(10)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "click",
+                BAEvent.timestamp >= start_date
+            )
+            clicks_stmt = apply_path_filter(clicks_stmt)
+            clicks_stmt = clicks_stmt.group_by(BAEvent.element_text).order_by(text("c DESC")).limit(10)
             top_clicks = (await session.execute(clicks_stmt)).all()
 
-            # 5. Journey Sequences
+            # 4. Journey Sequences
             journey_stmt = select(BASession.id, BAEvent.path, BAEvent.timestamp).join(BAEvent).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= start_date
-            ).order_by(BASession.id, BAEvent.timestamp)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "pageview",
+                BAEvent.timestamp >= start_date
+            )
+            journey_stmt = apply_path_filter(journey_stmt)
+            journey_stmt = journey_stmt.order_by(BASession.id, BAEvent.timestamp)
             rows = (await session.execute(journey_stmt)).all()
             
             sessions_map = {}
@@ -1197,24 +1230,25 @@ async def get_behavior_dashboard(business_id: str, days: int = 7):
             top_sequences = sorted([{"seq": k, "count": v} for k, v in sequences.items()], key=lambda x: x["count"], reverse=True)[:5]
             top_dropoffs = sorted([{"path": k, "count": v} for k, v in dropoffs.items()], key=lambda x: x["count"], reverse=True)[:5]
 
-            # 6. Offer Funnel Stats
-            offer_stats_stmt = select(
-                BAEvent.offer_id, 
-                BAEvent.event_type, 
-                func.count(BAEvent.id)
-            ).where(
-                BAEvent.business_id == bid,
-                BAEvent.offer_id.isnot(None),
-                BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.offer_id, BAEvent.event_type)
-            
-            offer_rows = (await session.execute(offer_stats_stmt)).all()
+            # 5. Offer Funnel Stats
             offer_funnels = {}
-            for oid, etype, count in offer_rows:
-                if oid not in offer_funnels: offer_funnels[oid] = {"offer_id": oid, "views": 0, "clicks": 0, "conversions": 0}
-                if etype == "pageview": offer_funnels[oid]["views"] += count
-                elif etype == "click": offer_funnels[oid]["clicks"] += count
-                elif etype == "conversion": offer_funnels[oid]["conversions"] += count
+            if traffic_type == "visitors":
+                offer_stats_stmt = select(
+                    BAEvent.offer_id, 
+                    BAEvent.event_type, 
+                    func.count(BAEvent.id)
+                ).where(
+                    BAEvent.business_id == bid,
+                    BAEvent.offer_id.isnot(None),
+                    BAEvent.timestamp >= start_date
+                )
+                offer_stats_stmt = offer_stats_stmt.group_by(BAEvent.offer_id, BAEvent.event_type)
+                offer_rows = (await session.execute(offer_stats_stmt)).all()
+                for oid, etype, count in offer_rows:
+                    if oid not in offer_funnels: offer_funnels[oid] = {"offer_id": oid, "views": 0, "clicks": 0, "conversions": 0}
+                    if etype == "pageview": offer_funnels[oid]["views"] += count
+                    elif etype == "click": offer_funnels[oid]["clicks"] += count
+                    elif etype == "conversion": offer_funnels[oid]["conversions"] += count
 
             return {
                 "chart_data": sorted(chart_data.values(), key=lambda x: x["date"]),
@@ -1231,6 +1265,7 @@ async def get_behavior_dashboard(business_id: str, days: int = 7):
             }
         except Exception as e:
             logger.error(f"Error BA Dashboard: {e}")
+            traceback.print_exc()
             raise HTTPException(status_code=500, detail="BA Dashboard fetch failed")
 
 @app.get("/api/business-status")

@@ -6,11 +6,13 @@ import HowItWorksChat from '../components/landing/HowItWorksChat';
 import LeadCaptureModal from '../components/LeadCaptureModal';
 import AutoSlider from '../components/landing/AutoSlider';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config';
 
 const LandingPage = () => {
   const [demoFormState, setDemoFormState] = useState({ name: '', email: '', phone: '', businessType: '' });
   const [demoSubmitted, setDemoSubmitted] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState(null);
   const [scrollState, setScrollState] = useState('top');
   const [selectedIndustry, setSelectedIndustry] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -171,15 +173,39 @@ const LandingPage = () => {
     }
   };
 
-  const handleDemoSubmit = (e) => {
+  const handleDemoSubmit = async (e) => {
     e.preventDefault();
     setDemoLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setDemoLoading(false);
+    setDemoError(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/leads/capture`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: demoFormState.name,
+          email: demoFormState.email,
+          phone: demoFormState.phone,
+          role: 'Prospect',
+          company_name: '',
+          automation_goals: 'Requested a personalized demo',
+          industry: demoFormState.businessType,
+          demo_type: 'scheduled_demo',
+          business_id: '0bbd48c4-b066-435a-be3d-c095b55897c6'
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Failed to submit demo request');
+      }
+
       setDemoSubmitted(true);
       setDemoFormState({ name: '', email: '', phone: '', businessType: '' });
-    }, 2000);
+    } catch (err) {
+      setDemoError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setDemoLoading(false);
+    }
   };
 
   const pricingPlans = [
@@ -1488,6 +1514,11 @@ const LandingPage = () => {
                         </select>
                       </div>
                     </div>
+                    {demoError && (
+                      <p className="text-red-600 text-sm font-bold bg-red-50 p-4 rounded-2xl border border-red-100">
+                        {demoError}
+                      </p>
+                    )}
                     <button 
                       type="submit" 
                       disabled={demoLoading}
