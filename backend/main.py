@@ -1506,9 +1506,9 @@ async def web_chat(body: WebMessage):
         }
         
         # 3.1 Fire and Forget Workflow Trigger
-        executions = await workflow_engine.trigger_workflow(real_business_id, "message_created", trigger_data)
+        executions, takes_over_chat = await workflow_engine.trigger_workflow(real_business_id, "message_created", trigger_data)
         
-        if executions:
+        if executions and takes_over_chat:
             return {"reply": None, "status": "workflow_processing", "executions": executions}
         
         # 3.2 Dynamic Context injection (Scheduling)

@@ -5,11 +5,11 @@
   "messages": [
     {
       "role": "system",
-      "content": "You are a conversion rate optimization (CRO) expert.\n\nIMPORTANT: Do NOT use markdown headers (e.g. #, ##, ###, ####) or markdown bolding/italics (e.g. **). Instead, format headers using normal text in UPPERCASE, and use plain text spacing and dashes for lists."
+      "content": "You are a senior sales strategist. Provide actionable, high-conversion follow-up advice.\n\nIMPORTANT: Do NOT use markdown headers (e.g. #, ##, ###, ####) or markdown bolding/italics (e.g. **). Instead, format headers using normal text in UPPERCASE, and use plain text spacing and dashes for lists."
     },
     {
       "role": "user",
-      "content": "\n        Analyze this funnel bottleneck and suggest one specific optimization.\n        PATH: /dashboard\n        DROP-OFF COUNT: 2\n        \n        Suggest a specific UI or content change to reduce friction at this stage. (Max 2 sentences)\n        "
+      "content": "\n        Analyze this stalled lead and recommend a specific follow-up action.\n        NAME: Trudy Davis\n        STATUS: qualified\n        NOTES: Appointment booked for 2026-07-29T13:00:00\n        VALUE: $Unknown\n        \n        Keep the recommendation concise (max 2 sentences). Focus on converting them to the next stage.\n        "
     }
   ]
 }

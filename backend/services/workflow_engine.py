@@ -56,7 +56,7 @@ class WorkflowEngine:
             elif trigger_type == "scheduling_event":
                 target_types.add("appointment_booked")
             
-            stmt = select(Workflow).where(
+            stmt = select(Workflow).options(selectinload(Workflow.nodes)).where(
                 Workflow.business_id.in_(possible_ids), 
                 Workflow.is_active == True,
                 Workflow.trigger_type.in_(list(target_types))
@@ -146,8 +146,24 @@ class WorkflowEngine:
                 else:
                     logger.warning(f"[WorkflowEngine] Workflow {wf.id} has no start node or matching trigger node.")
                 
+            # Check if any of the executed workflows takes over the chat/conversation
+            # (i.e. has customer-facing interaction nodes)
+            takes_over_chat = False
+            for wf in workflows:
+                for node in wf.nodes:
+                    if node.type in ["escalate_to_human", "wait_for_reply"]:
+                        takes_over_chat = True
+                        break
+                    elif node.type == "action":
+                        action_type = node.config.get("action_type")
+                        if action_type in ["send_message", "route_to_department", "assign_agent", "send_offer_link"]:
+                            takes_over_chat = True
+                            break
+                if takes_over_chat:
+                    break
+
             await session.commit()
-            return executions
+            return executions, takes_over_chat
 
     async def check_and_resume_execution(self, business_id: str, trigger_data: dict):
         """
@@ -627,9 +643,57 @@ def hydrate_text(text: str, context: dict):
     def replace_var(match):
         key = match.group(1).strip()
         val = get_context_value(context, key)
-        return str(val) if val is not None else match.group(0)
+        return str(val) if val is not None else ""
         
     return re.sub(r'\{\{(.*?)\}\}', replace_var, text)
+
+async def should_notify_agent(business_id: str, user_id: str) -> bool:
+    """
+    Checks if we should send a notification to the agent for this message.
+    Returns True if this is the first message in the conversation, or if
+    the last customer message was sent more than 30 minutes ago (new session).
+    """
+    if not business_id or not user_id:
+        return True # Default to notify if we can't check
+        
+    from services.db_service import resolve_business_id
+    real_business_id = await resolve_business_id(business_id)
+    convo_id = f"{real_business_id}:{user_id}"
+    
+    from database.session import AsyncSessionLocal
+    from database.models.chat import Message
+    from sqlalchemy import select
+    
+    async with AsyncSessionLocal() as session:
+        try:
+            # Query last 2 customer messages in this conversation
+            stmt = (
+                select(Message)
+                .where(Message.conversation_id == convo_id, Message.sender == "customer")
+                .order_by(Message.timestamp.desc())
+                .limit(2)
+            )
+            result = await session.execute(stmt)
+            messages = result.scalars().all()
+            
+            # If this is the only message (count == 1), definitely notify
+            if len(messages) <= 1:
+                return True
+                
+            # If there are multiple messages, check the gap between the latest and the previous one
+            latest_msg = messages[0]
+            prev_msg = messages[1]
+            
+            time_gap = (latest_msg.timestamp - prev_msg.timestamp).total_seconds()
+            
+            # Notify only if the gap is greater than 30 minutes (1800 seconds)
+            if time_gap > 1800:
+                return True
+                
+            return False
+        except Exception as e:
+            logger.error(f"[WorkflowEngine] Error checking notification throttle: {e}")
+            return True # Fallback to notify
 
 async def execute_node_logic(node: WorkflowNode, context: dict):
     """
@@ -751,6 +815,22 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                  logger.error(f"[WorkflowEngine] Invalid email for send_email node: {to_email}")
                  return {"action_result": "failed", "error": "Invalid or missing recipient email"}
             
+            # Throttling to prevent spamming the agent on every message in the same conversation
+            business_id = context.get("business_id", "default")
+            user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
+            
+            # Determine if this email is an agent alert (static address) rather than customer response
+            config_to = config.get("to")
+            is_agent_alert = False
+            if config_to and "@" in config_to:
+                cust_email = context.get("trigger", {}).get("customer_email") or context.get("trigger", {}).get("email")
+                if not cust_email or config_to.lower().strip() != cust_email.lower().strip():
+                    is_agent_alert = True
+                    
+            if is_agent_alert and not await should_notify_agent(business_id, user_id):
+                logger.info(f"[WorkflowEngine] Skipping agent email alert to {to_email} (throttled)")
+                return {"action_result": "skipped", "reason": "notification_throttled"}
+            
             # 2. Hydrate Subject & Body
             subject = hydrate_text(config.get("subject", "Notification from InteracAI"), context)
             body = hydrate_text(config.get("body", "Hello! This is an automated message."), context)
@@ -774,6 +854,32 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             else:
                 error_msg = result[1] if isinstance(result, tuple) else "SMTP delivery failed"
                 return {"action_result": "failed", "error": error_msg}
+
+        elif action_type == "notify_agent_whatsapp":
+            # Action: Send WhatsApp notification to a specified agent number
+            from services.whatsapp_service import send_whatsapp_message
+            
+            # Throttling to prevent spamming the agent on every message in the same conversation
+            business_id = context.get("business_id", "default")
+            user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
+            if not await should_notify_agent(business_id, user_id):
+                logger.info(f"[WorkflowEngine] Skipping agent WhatsApp alert to {config.get('to_number')} (throttled)")
+                return {"action_result": "skipped", "reason": "notification_throttled"}
+            
+            target_number = config.get("to_number")
+            message_template = config.get("template", "New customer chat alert!")
+            
+            message_body = hydrate_text(message_template, context)
+            
+            if target_number:
+                # Pass business_id so it utilizes the business's WhatsApp credentials (if configured)
+                success = await send_whatsapp_message(target_number, message_body, business_id=context.get("business_id"))
+                if success:
+                    return {"action_result": "sent_agent_notification", "message_body": message_body}
+                else:
+                    return {"action_result": "failed", "error": "WhatsApp message delivery failed"}
+            else:
+                return {"action_result": "failed", "error": "No target agent number configured"}
 
         elif action_type == "route_to_department":
             # Action: Route to a specific department

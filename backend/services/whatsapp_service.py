@@ -144,8 +144,8 @@ async def process_whatsapp_message_task(from_number: str, msg_body: str, phone_i
             "keywords": [kw for kw in handover_keywords if kw in msg_body.lower()]
         }
         
-        executions = await workflow_engine.trigger_workflow(business_id, "message_created", trigger_cmd)
-        if executions:
+        executions, takes_over_chat = await workflow_engine.trigger_workflow(business_id, "message_created", trigger_cmd)
+        if executions and takes_over_chat:
             return
 
         # 2. AI Response

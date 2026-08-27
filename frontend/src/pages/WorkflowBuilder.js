@@ -394,6 +394,12 @@ export default function WorkflowBuilder() {
             💬 Send Msg
           </button>
           <button
+            onClick={() => addNode("action", "Notify Agent (WhatsApp)")}
+            className="text-sm bg-white border p-2 rounded shadow-sm hover:border-navy text-left"
+          >
+            🟢 Notify Agent (WhatsApp)
+          </button>
+          <button
             onClick={() => addNode("action", "Send Email")}
             className="text-sm bg-white border p-2 rounded shadow-sm hover:border-navy text-left"
           >
@@ -629,6 +635,40 @@ export default function WorkflowBuilder() {
                               }
                             />
                             <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold tracking-tighter">Available tags: {"{{customer_email}}"}, {"{{offer_title}}"}, {"{{amount}}"}</p>
+                          </div>
+                        </>
+                      )}
+
+                    {type === "action" &&
+                      node.data.label === "Notify Agent (WhatsApp)" && (
+                        <>
+                          <InputField
+                            label="Agent Phone Number (with Country Code)"
+                            value={node.data.config.to_number || ""}
+                            onChange={(v) => updateNodeConfig("to_number", v)}
+                            placeholder="e.g. 2348101234567"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "notify_agent_whatsapp")
+                            }
+                          />
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Alert Template
+                            </label>
+                            <textarea
+                              value={node.data.config.template || ""}
+                              onChange={(e) =>
+                                updateNodeConfig("template", e.target.value)
+                              }
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm h-32"
+                              placeholder="Ongoing chat started! Platform: {{trigger.platform}}, Message: {{trigger.message_body}}"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold tracking-tighter">
+                              Available tags: {"{{trigger.platform}}"}, {"{{trigger.message_body}}"}, {"{{trigger.from_number}}"}, {"{{trigger.user_id}}"}
+                            </p>
                           </div>
                         </>
                       )}
