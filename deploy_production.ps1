@@ -22,7 +22,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Build failed!" -ForegroundColor Red; exit
 
 # 3. Deploy to Firebase
 Write-Host "Deploying to Firebase Hosting (Production)..." -ForegroundColor Yellow
-firebase deploy --only hosting
+npx firebase deploy --only hosting
 if ($LASTEXITCODE -ne 0) { Write-Host "Firebase deployment failed!" -ForegroundColor Red; exit 1 }
 
 # 4. Push Backend to Production branch (Triggers Render production build)
