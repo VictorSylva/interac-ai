@@ -502,12 +502,9 @@ export default function BusinessProfile() {
                       onChange={(e) => handleUpdateProfile(e.target.value, activeRole)}
                       className="w-full p-2.5 border border-slate-300 rounded-lg text-slate-800 bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="general">General (Full Base Access)</option>
-                      <option value="reception">Reception / Front Desk (Hotels, Hospital EHR)</option>
-                      <option value="security">Security & Surveillance (ALPR, CCTV, Guard Patrols)</option>
-                      <option value="finance">Finance & Billing (POS, Invoices, IRS Tax Audits)</option>
-                      <option value="counselor">Counselor (Education Attendance Risk)</option>
-                      <option value="operator">Operator (Manufacturing Shopfloor OEE)</option>
+                      {form.departments?.map((dept) => (
+                        <option key={dept} value={dept}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -836,13 +833,10 @@ export default function BusinessProfile() {
                       onChange={(e) => setInviteRole(e.target.value)}
                       className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="receptionist">Receptionist / Frontdesk</option>
-                      <option value="room_service">Room Service / Housekeeping</option>
-                      <option value="restaurant_staff">Restaurant Server / Kitchen</option>
-                      <option value="security_guard">Security Guard</option>
-                      <option value="accounts_manager">Finance / Auditor</option>
-                      <option value="general_manager">General Manager</option>
-                      <option value="admin">Administrator</option>
+                      <option value="admin">Administrator / Manager</option>
+                      <option value="support_agent">Supervisor / Team Lead</option>
+                      <option value="agent">Staff / Specialist / Agent</option>
+                      <option value="viewer">Viewer / Auditor (Read-Only)</option>
                     </select>
                   </div>
                   <div>
@@ -852,12 +846,9 @@ export default function BusinessProfile() {
                       onChange={(e) => setInviteDept(e.target.value)}
                       className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="general">General</option>
-                      <option value="reception">Reception / Front desk</option>
-                      <option value="security">Security & Patrol</option>
-                      <option value="finance">Finance & Accounts</option>
-                      <option value="restaurant">Restaurant & Kitchen</option>
-                      <option value="housekeeping">Housekeeping</option>
+                      {form.departments?.map((dept) => (
+                        <option key={dept} value={dept}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
