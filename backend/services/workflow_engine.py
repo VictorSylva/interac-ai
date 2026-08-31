@@ -860,7 +860,7 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
 
         elif action_type == "notify_agent_whatsapp":
             # Action: Send WhatsApp notification to a specified agent number
-            from services.whatsapp_service import send_whatsapp_message
+            from services.whatsapp_service import send_whatsapp_template
             
             # Throttling to prevent spamming the agent on every message in the same conversation
             business_id = context.get("business_id", "default")
@@ -872,19 +872,67 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                 return {"action_result": "skipped", "reason": "notification_throttled"}
             
             target_number = config.get("to_number")
-            message_template = config.get("template", "New customer chat alert!")
-            
-            message_body = hydrate_text(message_template, context)
-            
-            if target_number:
-                # Pass business_id so it utilizes the business's WhatsApp credentials (if configured)
-                success = await send_whatsapp_message(target_number, message_body, business_id=context.get("business_id"))
-                if success:
-                    return {"action_result": "sent_agent_notification", "message_body": message_body}
-                else:
-                    return {"action_result": "failed", "error": "WhatsApp message delivery failed"}
-            else:
+            if not target_number:
                 return {"action_result": "failed", "error": "No target agent number configured"}
+                
+            # 1. Resolve Agent Name (greeting)
+            agent_name = "Agent"
+            clean_target = target_number.strip().replace("+", "")
+            if clean_target.endswith("08131608061") or clean_target.endswith("8131608061"):
+                agent_name = "Mbasiti"
+            
+            # 2. Customer Identity
+            customer_phone = context.get("trigger", {}).get("from_number") or context.get("trigger", {}).get("user_id") or "New Customer"
+            if customer_phone.startswith("web_user_"):
+                customer_phone = f"Web User ({customer_phone.replace('web_user_', '')})"
+            else:
+                # Format phone numbers nicely if it starts with digit
+                if customer_phone.isdigit() and not customer_phone.startswith("+"):
+                    customer_phone = f"+{customer_phone}"
+            
+            # 3. Format Time (e.g. 31 August 2026, 2:30 PM)
+            from datetime import datetime
+            time_str = datetime.utcnow().strftime("%d %B %Y, %I:%M %p")
+            
+            # Build parameters according to Meta's requirements for 'interacai_agent_chat_notification'
+            components = [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": agent_name},
+                        {"type": "text", "text": customer_phone},
+                        {"type": "text", "text": time_str}
+                    ]
+                }
+            ]
+            
+            # Send using the approved template
+            logger.info(f"[WorkflowEngine] Sending WhatsApp template 'interacai_agent_chat_notification' to {target_number} (business: {business_id})")
+            success = await send_whatsapp_template(
+                to_number=target_number,
+                template_name="interacai_agent_chat_notification",
+                language_code="en",
+                components=components,
+                business_id=business_id
+            )
+            
+            if success:
+                return {
+                    "action_result": "sent_agent_notification_template",
+                    "template": "interacai_agent_chat_notification",
+                    "to": target_number
+                }
+            else:
+                logger.warning("[WorkflowEngine] Template send failed. Falling back to free-form text message.")
+                from services.whatsapp_service import send_whatsapp_message
+                message_template = config.get("template", "New customer chat alert!")
+                message_body = hydrate_text(message_template, context)
+                
+                success_fallback = await send_whatsapp_message(target_number, message_body, business_id=business_id)
+                if success_fallback:
+                    return {"action_result": "sent_agent_notification", "message_body": message_body}
+                    
+                return {"action_result": "failed", "error": "WhatsApp template and fallback message delivery both failed"}
 
         elif action_type == "route_to_department":
             # Action: Route to a specific department
