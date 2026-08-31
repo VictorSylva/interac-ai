@@ -299,7 +299,11 @@ async def startup_event():
                     "ALTER TABLE users ADD COLUMN {ine} email_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN {ine} verification_token VARCHAR",
                     "ALTER TABLE users ADD COLUMN {ine} role_id VARCHAR",
-                    "ALTER TABLE users ADD COLUMN {ine} department_id VARCHAR"
+                    "ALTER TABLE users ADD COLUMN {ine} department_id VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} phone VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} receive_operational_alerts BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE users ADD COLUMN {ine} notification_preference VARCHAR DEFAULT 'all'",
+                    "ALTER TABLE business_settings ADD COLUMN {ine} notification_cooldown_minutes INTEGER DEFAULT 30"
                 ]
                 
                 for stmt in statements:
@@ -396,6 +400,19 @@ async def startup_event():
             # Load & Register InteracAI Industry Starter Modules
             from modules.loader import load_all_industry_modules
             await load_all_industry_modules()
+            
+            # Start Escalation Background Daemon
+            async def escalation_daemon_loop():
+                logger.info("[Startup] Escalation background daemon started.")
+                while True:
+                    try:
+                        from services.routing_service import DepartmentRoutingService
+                        await DepartmentRoutingService.check_and_trigger_escalations()
+                    except Exception as daemon_err:
+                        logger.error(f"[EscalationDaemon] Error running check: {daemon_err}")
+                    await asyncio.sleep(60)
+            
+            asyncio.create_task(escalation_daemon_loop())
             
             break
         except Exception as e:
@@ -672,11 +689,22 @@ async def reset_password_endpoint(body: ResetPasswordRequest):
             raise HTTPException(status_code=400, detail="Invalid or expired token")
         return {"status": "success", "message": "Password updated"}
 
+def normalize_agent_phone(phone: str) -> str:
+    if not phone:
+        return ""
+    clean = "".join(c for c in phone if c.isdigit())
+    if clean.startswith("0") and len(clean) == 11:
+        clean = "234" + clean[1:]
+    return clean
+
 class UpdateProfileRequest(BaseModel):
     user_id: str
     department: str
     role: str
     property_id: Optional[str] = None
+    phone: Optional[str] = None
+    receive_operational_alerts: Optional[bool] = None
+    notification_preference: Optional[str] = None
 
 @app.put("/api/auth/profile")
 async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
@@ -703,6 +731,12 @@ async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict
         else:
             user.property_id = body.property_id
             
+        user.phone = normalize_agent_phone(body.phone) if body.phone is not None else user.phone
+        if body.receive_operational_alerts is not None:
+            user.receive_operational_alerts = body.receive_operational_alerts
+        if body.notification_preference is not None:
+            user.notification_preference = body.notification_preference
+            
         await session.commit()
         await session.refresh(user)
         permissions = await get_user_permissions(user, session)
@@ -716,6 +750,9 @@ async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict
                 "role": user.role,
                 "department": user.department,
                 "property_id": user.property_id,
+                "phone": user.phone,
+                "receive_operational_alerts": user.receive_operational_alerts,
+                "notification_preference": user.notification_preference,
                 "permissions": permissions
             }
         }
@@ -877,6 +914,9 @@ async def get_business_users_endpoint(current_user: dict = Depends(get_current_u
                 "role": u.role,
                 "department": u.department or "general",
                 "property_id": u.property_id,
+                "phone": u.phone,
+                "receive_operational_alerts": u.receive_operational_alerts,
+                "notification_preference": u.notification_preference,
                 "status": u.status or "active",
                 "created_at": u.created_at
             } for u in users
@@ -1306,6 +1346,166 @@ async def update_profile(profile: BusinessProfile):
     except Exception as e:
         logger.error(f"Error in update_profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class SaveRoutingConfigRequest(BaseModel):
+    department: str
+    display_name: Optional[str] = None
+    notification_phone: Optional[str] = None
+    notification_email: Optional[str] = None
+    primary_user_id: Optional[str] = None
+    routing_enabled: Optional[bool] = True
+    whatsapp_enabled: Optional[bool] = True
+    email_enabled: Optional[bool] = True
+    escalation_enabled: Optional[bool] = False
+    escalation_timeout_minutes: Optional[int] = 30
+    escalation_user_id: Optional[str] = None
+    escalation_level2_user_id: Optional[str] = None
+    property_id: Optional[str] = None
+
+@app.get("/api/business/routing-configs")
+async def get_routing_configs_endpoint(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(DepartmentConfig).where(DepartmentConfig.business_id == current_user.get("business_id"))
+        res = await session.execute(stmt)
+        configs = res.scalars().all()
+        return [
+            {
+                "id": c.id,
+                "department": c.department,
+                "display_name": c.display_name,
+                "notification_phone": c.notification_phone,
+                "notification_email": c.notification_email,
+                "primary_user_id": c.primary_user_id,
+                "routing_enabled": c.routing_enabled,
+                "whatsapp_enabled": c.whatsapp_enabled,
+                "email_enabled": c.email_enabled,
+                "escalation_enabled": c.escalation_enabled,
+                "escalation_timeout_minutes": c.escalation_timeout_minutes,
+                "escalation_user_id": c.escalation_user_id,
+                "escalation_level2_user_id": c.escalation_level2_user_id,
+                "property_id": c.property_id
+            } for c in configs
+        ]
+
+@app.post("/api/business/routing-configs")
+async def save_routing_config_endpoint(body: SaveRoutingConfigRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    bid = current_user.get("business_id")
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(DepartmentConfig).where(
+            DepartmentConfig.business_id == bid,
+            DepartmentConfig.department == body.department
+        )
+        if body.property_id:
+            stmt = stmt.where(DepartmentConfig.property_id == body.property_id)
+        else:
+            stmt = stmt.where(DepartmentConfig.property_id.is_(None))
+            
+        res = await session.execute(stmt)
+        config_obj = res.scalar_one_or_none()
+        
+        # Clean phone
+        phone_normalized = normalize_agent_phone(body.notification_phone) if body.notification_phone else None
+        
+        if config_obj:
+            # Update
+            config_obj.display_name = body.display_name
+            config_obj.notification_phone = phone_normalized
+            config_obj.notification_email = body.notification_email
+            config_obj.primary_user_id = body.primary_user_id
+            config_obj.routing_enabled = body.routing_enabled if body.routing_enabled is not None else config_obj.routing_enabled
+            config_obj.whatsapp_enabled = body.whatsapp_enabled if body.whatsapp_enabled is not None else config_obj.whatsapp_enabled
+            config_obj.email_enabled = body.email_enabled if body.email_enabled is not None else config_obj.email_enabled
+            config_obj.escalation_enabled = body.escalation_enabled if body.escalation_enabled is not None else config_obj.escalation_enabled
+            config_obj.escalation_timeout_minutes = body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else config_obj.escalation_timeout_minutes
+            config_obj.escalation_user_id = body.escalation_user_id
+            config_obj.escalation_level2_user_id = body.escalation_level2_user_id
+        else:
+            # Create
+            config_obj = DepartmentConfig(
+                business_id=bid,
+                department=body.department,
+                display_name=body.display_name,
+                notification_phone=phone_normalized,
+                notification_email=body.notification_email,
+                primary_user_id=body.primary_user_id,
+                routing_enabled=body.routing_enabled if body.routing_enabled is not None else True,
+                whatsapp_enabled=body.whatsapp_enabled if body.whatsapp_enabled is not None else True,
+                email_enabled=body.email_enabled if body.email_enabled is not None else True,
+                escalation_enabled=body.escalation_enabled if body.escalation_enabled is not None else False,
+                escalation_timeout_minutes=body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else 30,
+                escalation_user_id=body.escalation_user_id,
+                escalation_level2_user_id=body.escalation_level2_user_id,
+                property_id=body.property_id
+            )
+            session.add(config_obj)
+            
+        await session.commit()
+        return {"status": "success", "config_id": config_obj.id}
+
+@app.post("/api/notifications/{event_id}/acknowledge")
+async def acknowledge_notification_endpoint(event_id: str, current_user: dict = Depends(get_current_user)):
+    from database.session import AsyncSessionLocal
+    from database.models.general import NotificationEvent
+    
+    async with AsyncSessionLocal() as session:
+        event = await session.get(NotificationEvent, event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Notification event not found")
+            
+        # Verify tenant isolation
+        if event.business_id != current_user.get("business_id"):
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        event.status = "acknowledged"
+        event.acknowledged_at = datetime.utcnow()
+        event.acknowledged_by = current_user.get("id")
+        
+        await session.commit()
+        return {"status": "success", "message": "Notification acknowledged"}
+
+@app.post("/api/notifications/{event_id}/assign")
+async def assign_escalation_endpoint(event_id: str, current_user: dict = Depends(get_current_user)):
+    from database.session import AsyncSessionLocal
+    from database.models.general import NotificationEvent
+    from database.models.chat import Conversation
+    
+    async with AsyncSessionLocal() as session:
+        event = await session.get(NotificationEvent, event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Notification event not found")
+            
+        # Verify tenant isolation
+        if event.business_id != current_user.get("business_id"):
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        # Acknowledge event
+        event.status = "acknowledged"
+        event.acknowledged_at = datetime.utcnow()
+        event.acknowledged_by = current_user.get("id")
+        
+        # Assign conversation
+        if event.conversation_id:
+            convo = await session.get(Conversation, event.conversation_id)
+            if convo:
+                convo.assigned_agent_id = current_user.get("id")
+                convo.mode = "human" # Assign to human
+                session.add(convo)
+                
+        await session.commit()
+        return {"status": "success", "message": "Conversation assigned and notification acknowledged"}
 
 @app.get("/api/whatsapp/config")
 async def get_whatsapp_config_endpoint(business_id: str):

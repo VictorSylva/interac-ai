@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, DateT
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..base import Base
+import uuid
 
 class Business(Base):
     __tablename__ = "businesses"
@@ -66,6 +67,10 @@ class User(Base):
     role_id = Column(String, ForeignKey("roles.id"), nullable=True)
     department_id = Column(String, nullable=True)
     
+    phone = Column(String, nullable=True)
+    receive_operational_alerts = Column(Boolean, default=True)
+    notification_preference = Column(String, default="all") # "all", "whatsapp", "email", "none"
+    
     custom_role = relationship("Role", back_populates="users")
 
 class PushSubscription(Base):
@@ -96,6 +101,7 @@ class BusinessSettings(Base):
     location = Column(String)
     hours = Column(String)
     auto_escalate_on_keyword = Column(Boolean, default=False)
+    notification_cooldown_minutes = Column(Integer, default=30)
     departments = Column(JSON, default=lambda: ["sales", "support", "billing", "general"]) # Default departments
     installed_modules = Column(JSON, default=list) # Persisted list of active industry modules
     updated_at = Column(DateTime, default=datetime.utcnow)
@@ -209,3 +215,53 @@ class LoginAuditLog(Base):
     status = Column(String) # success, failed
     reason = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class DepartmentConfig(Base):
+    __tablename__ = "business_department_configs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    business_id = Column(String, ForeignKey("businesses.id"), index=True)
+    department = Column(String, nullable=False) # e.g. "sales", "support"
+    display_name = Column(String)
+
+    notification_phone = Column(String, nullable=True)
+    notification_email = Column(String, nullable=True)
+    primary_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    routing_enabled = Column(Boolean, default=True)
+    whatsapp_enabled = Column(Boolean, default=True)
+    email_enabled = Column(Boolean, default=True)
+
+    escalation_enabled = Column(Boolean, default=False)
+    escalation_timeout_minutes = Column(Integer, default=30)
+    escalation_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    escalation_level2_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business")
+    primary_user = relationship("User", foreign_keys=[primary_user_id])
+    escalation_user = relationship("User", foreign_keys=[escalation_user_id])
+    escalation_level2_user = relationship("User", foreign_keys=[escalation_level2_user_id])
+
+class NotificationEvent(Base):
+    __tablename__ = "business_notification_events"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    business_id = Column(String, ForeignKey("businesses.id"), index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True, index=True)
+    department = Column(String, nullable=True)
+    recipient = Column(String)  # Phone number or email
+    channel = Column(String)    # "whatsapp" or "email"
+    event_type = Column(String) # e.g. "message_created"
+    status = Column(String, default="sent") # sent, failed, acknowledged, escalated
+    
+    deduplication_key = Column(String, unique=True, index=True) # e.g. "business_id:conversation_id:workflow_id:channel"
+    escalation_level = Column(Integer, default=0)
+    
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    acknowledged_at = Column(DateTime, nullable=True)
+    acknowledged_by = Column(String, nullable=True) # User ID who acknowledged
+
+    conversation = relationship("Conversation")

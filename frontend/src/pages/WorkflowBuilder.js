@@ -607,17 +607,45 @@ export default function WorkflowBuilder() {
                     {type === "action" &&
                       node.data.label === "Send Email" && (
                         <>
-                          <InputField
-                            label="Recipient Email"
-                            value={node.data.config.to}
-                            onChange={(v) => updateNodeConfig("to", v)}
-                            placeholder="{{customer_email}}"
-                          />
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Recipient Type
+                            </label>
+                            <select
+                              value={node.data.config.recipient_type || "fixed"}
+                              onChange={(e) => updateNodeConfig("recipient_type", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none mb-3"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "send_email")
+                              }
+                            >
+                              <option value="fixed">Fixed Email (Static)</option>
+                              <option value="dynamic_routing">Dynamic Department Routing</option>
+                              <option value="assigned_agent">Assigned Conversation Agent</option>
+                              <option value="dept_primary">Department Primary Agent</option>
+                              <option value="dept_phone">Department Configured Email</option>
+                              <option value="business_admin">Business Administrator / Owner</option>
+                            </select>
+                          </div>
+                          {(node.data.config.recipient_type || "fixed") === "fixed" && (
+                            <InputField
+                              label="Recipient Email"
+                              value={node.data.config.to || ""}
+                              onChange={(v) => updateNodeConfig("to", v)}
+                              placeholder="{{customer_email}}"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "send_email")
+                              }
+                            />
+                          )}
                           <InputField
                             label="Subject"
-                            value={node.data.config.subject}
+                            value={node.data.config.subject || ""}
                             onChange={(v) => updateNodeConfig("subject", v)}
                             placeholder="Your Order Fulfillment"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "send_email")
+                            }
                           />
                           <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
@@ -642,15 +670,37 @@ export default function WorkflowBuilder() {
                     {type === "action" &&
                       node.data.label === "Notify Agent (WhatsApp)" && (
                         <>
-                          <InputField
-                            label="Agent Phone Number (with Country Code)"
-                            value={node.data.config.to_number || ""}
-                            onChange={(v) => updateNodeConfig("to_number", v)}
-                            placeholder="e.g. 2348101234567"
-                            onFocus={() =>
-                              updateNodeConfig("action_type", "notify_agent_whatsapp")
-                            }
-                          />
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Recipient Type
+                            </label>
+                            <select
+                              value={node.data.config.recipient_type || "fixed"}
+                              onChange={(e) => updateNodeConfig("recipient_type", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none mb-3"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            >
+                              <option value="fixed">Fixed Number (Static)</option>
+                              <option value="dynamic_routing">Dynamic Department Routing</option>
+                              <option value="assigned_agent">Assigned Conversation Agent</option>
+                              <option value="dept_primary">Department Primary Agent</option>
+                              <option value="dept_phone">Department Phone Number</option>
+                              <option value="business_admin">Business Administrator / Owner</option>
+                            </select>
+                          </div>
+                          {(node.data.config.recipient_type || "fixed") === "fixed" && (
+                            <InputField
+                              label="Agent Phone Number (with Country Code)"
+                              value={node.data.config.to_number || ""}
+                              onChange={(v) => updateNodeConfig("to_number", v)}
+                              placeholder="e.g. 2348101234567"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            />
+                          )}
                           <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
                               Alert Template

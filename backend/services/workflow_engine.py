@@ -649,52 +649,137 @@ def hydrate_text(text: str, context: dict):
         
     return re.sub(r'\{\{(.*?)\}\}', replace_var, text)
 
-async def should_notify_agent(business_id: str, user_id: str, workflow_id: str, current_execution_id: str = None) -> bool:
+async def resolve_node_phone_number(config: dict, context: dict) -> dict:
+    recipient_type = config.get("recipient_type", "fixed")
+    business_id = context.get("business_id", "default")
+    user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
+    convo_id = f"{business_id}:{user_id}"
+    department = context.get("trigger", {}).get("department") or context.get("department") or "general"
+    property_id = context.get("trigger", {}).get("property_id") or context.get("property_id")
+    
+    if recipient_type == "fixed":
+        return {"phone": config.get("to_number"), "reason": "Fixed configuration"}
+        
+    from services.routing_service import DepartmentRoutingService
+    resolved = await DepartmentRoutingService.resolve_recipient(
+        business_id=business_id,
+        department=department,
+        conversation_id=convo_id,
+        property_id=property_id
+    )
+    
+    if recipient_type == "assigned_agent":
+        if resolved.get("recipient_type") == "assigned_agent":
+            return {"phone": resolved.get("phone"), "reason": resolved.get("routing_reason")}
+        return {"phone": None, "reason": "No assigned agent found"}
+        
+    elif recipient_type == "dept_primary":
+        if resolved.get("recipient_type") == "primary_agent":
+            return {"phone": resolved.get("phone"), "reason": resolved.get("routing_reason")}
+        return {"phone": None, "reason": "No department primary agent found"}
+        
+    elif recipient_type == "dept_phone":
+        if resolved.get("recipient_type") == "department_phone":
+            return {"phone": resolved.get("phone"), "reason": resolved.get("routing_reason")}
+        return {"phone": None, "reason": "No department phone number configured"}
+        
+    elif recipient_type == "business_admin":
+        if resolved.get("recipient_type") == "owner":
+            return {"phone": resolved.get("phone"), "reason": resolved.get("routing_reason")}
+        return {"phone": None, "reason": "No business owner found"}
+        
+    return {"phone": resolved.get("phone"), "reason": resolved.get("routing_reason")}
+
+async def resolve_node_email(config: dict, context: dict) -> dict:
+    recipient_type = config.get("recipient_type", "fixed")
+    business_id = context.get("business_id", "default")
+    user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
+    convo_id = f"{business_id}:{user_id}"
+    department = context.get("trigger", {}).get("department") or context.get("department") or "general"
+    property_id = context.get("trigger", {}).get("property_id") or context.get("property_id")
+    
+    if recipient_type == "fixed":
+        return {"email": config.get("to"), "reason": "Fixed configuration"}
+        
+    from services.routing_service import DepartmentRoutingService
+    resolved = await DepartmentRoutingService.resolve_recipient(
+        business_id=business_id,
+        department=department,
+        conversation_id=convo_id,
+        property_id=property_id
+    )
+    
+    if recipient_type == "assigned_agent":
+        if resolved.get("recipient_type") == "assigned_agent":
+            return {"email": resolved.get("email"), "reason": resolved.get("routing_reason")}
+        return {"email": None, "reason": "No assigned agent found"}
+        
+    elif recipient_type == "dept_primary":
+        if resolved.get("recipient_type") == "primary_agent":
+            return {"email": resolved.get("email"), "reason": resolved.get("routing_reason")}
+        return {"email": None, "reason": "No department primary agent found"}
+        
+    elif recipient_type == "dept_phone":
+        if resolved.get("recipient_type") in ["department_phone", "department_email"]:
+            return {"email": resolved.get("email"), "reason": resolved.get("routing_reason")}
+        return {"email": None, "reason": "No department email configured"}
+        
+    elif recipient_type == "business_admin":
+        if resolved.get("recipient_type") == "owner":
+            return {"email": resolved.get("email"), "reason": resolved.get("routing_reason")}
+        return {"email": None, "reason": "No business owner found"}
+        
+    return {"email": resolved.get("email"), "reason": resolved.get("routing_reason")}
+
+async def should_notify_agent(business_id: str, user_id: str, workflow_id: str, current_execution_id: str = None, channel: str = "whatsapp") -> bool:
     """
     Checks if we should send a notification to the agent for this message.
     Returns True if no notification has been successfully sent to this user
-    for this workflow in the last 30 minutes.
+    for this conversation/channel in the last configured cooldown minutes (default 30).
     """
-    if not business_id or not user_id or not workflow_id:
+    if not business_id or not user_id:
         return True # Default to notify if we can't check
         
     from services.db_service import resolve_business_id
     real_business_id = await resolve_business_id(business_id)
+    convo_id = f"{real_business_id}:{user_id}"
     
     from database.session import AsyncSessionLocal
-    from database.models.workflow import WorkflowExecution
+    from database.models.general import NotificationEvent, BusinessSettings
     from datetime import datetime, timedelta
     from sqlalchemy import select
     
     async with AsyncSessionLocal() as session:
         try:
-            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            # 1. Fetch configured cooldown minutes (fallback to 30)
+            settings_stmt = select(BusinessSettings).where(BusinessSettings.business_id == real_business_id)
+            settings_res = await session.execute(settings_stmt)
+            settings = settings_res.scalar_one_or_none()
+            cooldown_mins = 30
+            if settings and hasattr(settings, "notification_cooldown_minutes"):
+                cooldown_mins = getattr(settings, "notification_cooldown_minutes") or 30
+                
+            cutoff = datetime.utcnow() - timedelta(minutes=cooldown_mins)
             
-            # Query executions for this workflow in the last 30 minutes
+            # 2. Check if a notification event exists within the cutoff
             stmt = (
-                select(WorkflowExecution)
+                select(NotificationEvent)
                 .where(
-                    WorkflowExecution.workflow_id == workflow_id,
-                    WorkflowExecution.started_at >= cutoff
+                    NotificationEvent.business_id == real_business_id,
+                    NotificationEvent.conversation_id == convo_id,
+                    NotificationEvent.channel == channel,
+                    NotificationEvent.sent_at >= cutoff
                 )
             )
-            if current_execution_id:
-                stmt = stmt.where(WorkflowExecution.id != current_execution_id)
+            res = await session.execute(stmt)
+            existing = res.scalars().first()
+            if existing:
+                return False # Throttled
                 
-            result = await session.execute(stmt)
-            executions = result.scalars().all()
-            
-            # Check if any execution was for this user
-            for exc in executions:
-                exc_trigger = exc.trigger_event or {}
-                exc_user = exc_trigger.get("user_id") or exc_trigger.get("from_number")
-                if exc_user == user_id:
-                    return False # Already notified in the last 30 minutes
-                    
             return True
         except Exception as e:
-            logger.error(f"[WorkflowEngine] Error checking notification throttle: {e}")
-            return True # Fallback to notify
+            logger.error(f"[WorkflowEngine] Cooldown check error: {e}", exc_info=True)
+            return True
 
 async def execute_node_logic(node: WorkflowNode, context: dict):
     """
@@ -804,16 +889,13 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             # Action: Send Email via SMTP
             from services.email_service import email_service
             
-            # 1. Resolve Recipient (Order: explicit 'to', customer_email, email, or user_id)
-            to_email = (
-                config.get("to") or 
-                context.get("trigger", {}).get("customer_email") or 
-                context.get("trigger", {}).get("email") or 
-                context.get("trigger", {}).get("user_id")
-            )
+            # 1. Resolve Recipient
+            recipient_res = await resolve_node_email(config, context)
+            to_email = recipient_res.get("email")
+            routing_reason = recipient_res.get("reason", "")
             
             if not to_email or "@" not in str(to_email):
-                 logger.error(f"[WorkflowEngine] Invalid email for send_email node: {to_email}")
+                 logger.error(f"[WorkflowEngine] Invalid email resolved for send_email: {to_email} (reason: {routing_reason})")
                  return {"action_result": "failed", "error": "Invalid or missing recipient email"}
             
             # Throttling to prevent spamming the agent on every message in the same conversation
@@ -822,15 +904,16 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             workflow_id = node.workflow_id
             current_execution_id = context.get("execution_id")
             
-            # Determine if this email is an agent alert (static address) rather than customer response
-            config_to = config.get("to")
-            is_agent_alert = False
-            if config_to and "@" in config_to:
+            # Determine if this email is an agent alert rather than customer response
+            recipient_type = config.get("recipient_type", "fixed")
+            is_agent_alert = (recipient_type != "fixed")
+            if not is_agent_alert:
+                # Fallback check
                 cust_email = context.get("trigger", {}).get("customer_email") or context.get("trigger", {}).get("email")
-                if not cust_email or config_to.lower().strip() != cust_email.lower().strip():
+                if to_email and cust_email and to_email.lower().strip() != cust_email.lower().strip():
                     is_agent_alert = True
                     
-            if is_agent_alert and not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id):
+            if is_agent_alert and not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id, channel="email"):
                 logger.info(f"[WorkflowEngine] Skipping agent email alert to {to_email} (throttled)")
                 return {"action_result": "skipped", "reason": "notification_throttled"}
             
@@ -838,11 +921,8 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             subject = hydrate_text(config.get("subject", "Notification from InteracAI"), context)
             body = hydrate_text(config.get("body", "Hello! This is an automated message."), context)
             
-            business_id = context.get("business_id", "default")
-            
             # 3. Send
-            logger.info(f"[WorkflowEngine] Sending email to {to_email} for business {business_id}")
-            # Fix: email_service.send_email returns (success, message) tuple
+            logger.info(f"[WorkflowEngine] Sending email to {to_email} for business {business_id} (reason: {routing_reason})")
             result = await email_service.send_email(
                 to=to_email,
                 subject=subject,
@@ -853,6 +933,50 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             success = result[0] if isinstance(result, tuple) else result
             
             if success:
+                # Log NotificationEvent for agent alert
+                if is_agent_alert:
+                    try:
+                        from database.session import AsyncSessionLocal
+                        from database.models.general import NotificationEvent
+                        from sqlalchemy import select
+                        from services.db_service import resolve_business_id
+                        
+                        real_business_id = await resolve_business_id(business_id)
+                        convo_id = f"{real_business_id}:{user_id}"
+                        department = context.get("trigger", {}).get("department") or context.get("department") or "general"
+                        
+                        async with AsyncSessionLocal() as session:
+                            event_stmt = select(NotificationEvent).where(
+                                NotificationEvent.business_id == real_business_id,
+                                NotificationEvent.conversation_id == convo_id,
+                                NotificationEvent.channel == "email"
+                            )
+                            event_res = await session.execute(event_stmt)
+                            event_obj = event_res.scalar_one_or_none()
+                            if event_obj:
+                                event_obj.recipient = to_email
+                                event_obj.sent_at = datetime.utcnow()
+                                event_obj.status = "sent"
+                                event_obj.escalation_level = 0
+                                event_obj.acknowledged_at = None
+                                event_obj.acknowledged_by = None
+                            else:
+                                event_obj = NotificationEvent(
+                                    business_id=real_business_id,
+                                    conversation_id=convo_id,
+                                    department=department,
+                                    recipient=to_email,
+                                    channel="email",
+                                    event_type="email_notification",
+                                    status="sent",
+                                    deduplication_key=f"{real_business_id}:{convo_id}:email",
+                                    escalation_level=0
+                                )
+                                session.add(event_obj)
+                            await session.commit()
+                    except Exception as event_err:
+                        logger.error(f"[WorkflowEngine] Error logging email notification event: {event_err}", exc_info=True)
+
                 return {"action_result": "email_sent", "to": to_email}
             else:
                 error_msg = result[1] if isinstance(result, tuple) else "SMTP delivery failed"
@@ -867,13 +991,17 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
             workflow_id = node.workflow_id
             current_execution_id = context.get("execution_id")
-            if not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id):
-                logger.info(f"[WorkflowEngine] Skipping agent WhatsApp alert to {config.get('to_number')} (throttled)")
+            if not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id, channel="whatsapp"):
+                logger.info(f"[WorkflowEngine] Skipping agent WhatsApp alert (throttled)")
                 return {"action_result": "skipped", "reason": "notification_throttled"}
             
-            target_number = config.get("to_number")
+            recipient_res = await resolve_node_phone_number(config, context)
+            target_number = recipient_res.get("phone")
+            routing_reason = recipient_res.get("reason", "")
+            
             if not target_number:
-                return {"action_result": "failed", "error": "No target agent number configured"}
+                logger.warning(f"[WorkflowEngine] WhatsApp target number could not be resolved (reason: {routing_reason})")
+                return {"action_result": "failed", "error": f"WhatsApp target number could not be resolved (reason: {routing_reason})"}
                 
             # 1. Resolve Agent Name (greeting)
             agent_name = "Agent"
@@ -907,7 +1035,7 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             ]
             
             # Send using the approved template
-            logger.info(f"[WorkflowEngine] Sending WhatsApp template 'interacai_agent_chat_notification' to {target_number} (business: {business_id})")
+            logger.info(f"[WorkflowEngine] Sending WhatsApp template 'interacai_agent_chat_notification' to {target_number} (business: {business_id}, reason: {routing_reason})")
             success = await send_whatsapp_template(
                 to_number=target_number,
                 template_name="interacai_agent_chat_notification",
@@ -917,6 +1045,49 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             )
             
             if success:
+                # Log NotificationEvent
+                try:
+                    from database.session import AsyncSessionLocal
+                    from database.models.general import NotificationEvent
+                    from sqlalchemy import select
+                    from services.db_service import resolve_business_id
+                    
+                    real_business_id = await resolve_business_id(business_id)
+                    convo_id = f"{real_business_id}:{user_id}"
+                    department = context.get("trigger", {}).get("department") or context.get("department") or "general"
+                    
+                    async with AsyncSessionLocal() as session:
+                        event_stmt = select(NotificationEvent).where(
+                            NotificationEvent.business_id == real_business_id,
+                            NotificationEvent.conversation_id == convo_id,
+                            NotificationEvent.channel == "whatsapp"
+                        )
+                        event_res = await session.execute(event_stmt)
+                        event_obj = event_res.scalar_one_or_none()
+                        if event_obj:
+                            event_obj.recipient = target_number
+                            event_obj.sent_at = datetime.utcnow()
+                            event_obj.status = "sent"
+                            event_obj.escalation_level = 0
+                            event_obj.acknowledged_at = None
+                            event_obj.acknowledged_by = None
+                        else:
+                            event_obj = NotificationEvent(
+                                business_id=real_business_id,
+                                conversation_id=convo_id,
+                                department=department,
+                                recipient=target_number,
+                                channel="whatsapp",
+                                event_type="whatsapp_notification",
+                                status="sent",
+                                deduplication_key=f"{real_business_id}:{convo_id}:whatsapp",
+                                escalation_level=0
+                            )
+                            session.add(event_obj)
+                        await session.commit()
+                except Exception as event_err:
+                    logger.error(f"[WorkflowEngine] Error logging WhatsApp notification event: {event_err}", exc_info=True)
+
                 return {
                     "action_result": "sent_agent_notification_template",
                     "template": "interacai_agent_chat_notification",
@@ -930,6 +1101,49 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                 
                 success_fallback = await send_whatsapp_message(target_number, message_body, business_id=business_id)
                 if success_fallback:
+                    # Log NotificationEvent on fallback success
+                    try:
+                        from database.session import AsyncSessionLocal
+                        from database.models.general import NotificationEvent
+                        from sqlalchemy import select
+                        from services.db_service import resolve_business_id
+                        
+                        real_business_id = await resolve_business_id(business_id)
+                        convo_id = f"{real_business_id}:{user_id}"
+                        department = context.get("trigger", {}).get("department") or context.get("department") or "general"
+                        
+                        async with AsyncSessionLocal() as session:
+                            event_stmt = select(NotificationEvent).where(
+                                NotificationEvent.business_id == real_business_id,
+                                NotificationEvent.conversation_id == convo_id,
+                                NotificationEvent.channel == "whatsapp"
+                            )
+                            event_res = await session.execute(event_stmt)
+                            event_obj = event_res.scalar_one_or_none()
+                            if event_obj:
+                                event_obj.recipient = target_number
+                                event_obj.sent_at = datetime.utcnow()
+                                event_obj.status = "sent"
+                                event_obj.escalation_level = 0
+                                event_obj.acknowledged_at = None
+                                event_obj.acknowledged_by = None
+                            else:
+                                event_obj = NotificationEvent(
+                                    business_id=real_business_id,
+                                    conversation_id=convo_id,
+                                    department=department,
+                                    recipient=target_number,
+                                    channel="whatsapp",
+                                    event_type="whatsapp_notification",
+                                    status="sent",
+                                    deduplication_key=f"{real_business_id}:{convo_id}:whatsapp",
+                                    escalation_level=0
+                                )
+                                session.add(event_obj)
+                            await session.commit()
+                    except Exception as event_err:
+                        logger.error(f"[WorkflowEngine] Error logging fallback WhatsApp notification event: {event_err}", exc_info=True)
+
                     return {"action_result": "sent_agent_notification", "message_body": message_body}
                     
                 return {"action_result": "failed", "error": "WhatsApp template and fallback message delivery both failed"}

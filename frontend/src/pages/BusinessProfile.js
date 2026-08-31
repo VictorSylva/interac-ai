@@ -36,6 +36,7 @@ export default function BusinessProfile() {
   const [inviteProp, setInviteProp] = useState("");
   const [newPropName, setNewPropName] = useState("");
   const [activeSettingsTab, setActiveSettingsTab] = useState("profile");
+  const [editingUser, setEditingUser] = useState(null);
 
   const handleUpdateProfile = (dept, role) => {
     setProfileSaved(false);
@@ -109,6 +110,10 @@ export default function BusinessProfile() {
       fetchProperties();
     } else if (activeSettingsTab === "audit") {
       fetchAuditLogs();
+    } else if (activeSettingsTab === "routing") {
+      fetchRoutingConfigs();
+      fetchUsers();
+      fetchProperties();
     }
   }, [activeSettingsTab]);
 
@@ -178,6 +183,82 @@ export default function BusinessProfile() {
     }
   };
 
+  const handleSaveUserEdit = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/auth/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: editingUser.id,
+          role: editingUser.role,
+          department: editingUser.department,
+          property_id: editingUser.property_id || null,
+          phone: editingUser.phone || "",
+          receive_operational_alerts: editingUser.receive_operational_alerts,
+          notification_preference: editingUser.notification_preference || "all"
+        })
+      });
+      if (res.ok) {
+        alert("Employee profile updated successfully!");
+        setEditingUser(null);
+        fetchUsers();
+      } else {
+        const err = await res.json();
+        alert(`Failed to save: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error saving employee profile.");
+    }
+  };
+
+  const [routingConfigs, setRoutingConfigs] = useState([]);
+
+  const fetchRoutingConfigs = async () => {
+    try {
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/business/routing-configs`);
+      if (res.ok) {
+        const data = await res.json();
+        setRoutingConfigs(data);
+      }
+    } catch (e) {
+      console.error("Error fetching routing configs:", e);
+    }
+  };
+
+  const handleUpdateRoutingConfigState = (dept, field, value) => {
+    setRoutingConfigs((prev) => {
+      const idx = prev.findIndex((c) => c.department === dept);
+      if (idx !== -1) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], [field]: value };
+        return copy;
+      } else {
+        return [...prev, { department: dept, [field]: value }];
+      }
+    });
+  };
+
+  const handleSaveRoutingConfig = async (config) => {
+    try {
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiUrl}/api/business/routing-configs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config)
+      });
+      if (res.ok) {
+        fetchRoutingConfigs();
+      }
+    } catch (e) {
+      console.error("Error saving routing config:", e);
+    }
+  };
+
   const handleCreateProperty = async (e) => {
     e.preventDefault();
     if (!newPropName) return;
@@ -209,6 +290,7 @@ export default function BusinessProfile() {
     location: "",
     hours: "",
     auto_escalate_on_keyword: false,
+    notification_cooldown_minutes: 30,
     departments: ["sales", "support", "billing", "general"],
   });
 
@@ -374,6 +456,13 @@ export default function BusinessProfile() {
                 className={`pb-3 px-1 text-sm font-bold border-b-2 transition-colors ${activeSettingsTab === "iam" ? "border-navy text-navy" : "border-transparent text-grey-500 hover:text-navy"}`}
               >
                 Employee & IAM
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSettingsTab("routing")}
+                className={`pb-3 px-1 text-sm font-bold border-b-2 transition-colors ${activeSettingsTab === "routing" ? "border-navy text-navy" : "border-transparent text-grey-500 hover:text-navy"}`}
+              >
+                Department Routing
               </button>
               <button
                 type="button"
@@ -563,20 +652,35 @@ export default function BusinessProfile() {
                 </p>
               </div>
               
-              <div className="md:col-span-2 flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <input
-                  type="checkbox"
-                  id="auto_escalate_on_keyword"
-                  name="auto_escalate_on_keyword"
-                  checked={form.auto_escalate_on_keyword}
-                  onChange={(e) => setForm({ ...form, auto_escalate_on_keyword: e.target.checked })}
-                  className="w-4 h-4 text-navy rounded border-grey-300 focus:ring-navy"
-                />
-                <label htmlFor="auto_escalate_on_keyword" className="flex-1">
-                  <span className="block text-sm font-bold text-navy">Auto-escalate on handover keywords</span>
-                  <span className="block text-xs text-navy/70">Automatically transfer to human if user says "human", "agent", etc.</span>
-                </label>
-                <div className="text-[10px] bg-navy text-white px-2 py-0.5 rounded font-bold uppercase">PRO</div>
+              <div className="md:col-span-2 flex flex-col gap-1.5 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="auto_escalate_on_keyword"
+                    name="auto_escalate_on_keyword"
+                    checked={form.auto_escalate_on_keyword}
+                    onChange={(e) => setForm({ ...form, auto_escalate_on_keyword: e.target.checked })}
+                    className="w-4 h-4 text-navy rounded border-grey-300 focus:ring-navy"
+                  />
+                  <label htmlFor="auto_escalate_on_keyword" className="flex-1">
+                    <span className="block text-sm font-bold text-navy">Auto-escalate on handover keywords</span>
+                    <span className="block text-xs text-navy/70">Automatically transfer to human if user says "human", "agent", etc.</span>
+                  </label>
+                  <div className="text-[10px] bg-navy text-white px-2 py-0.5 rounded font-bold uppercase">PRO</div>
+                </div>
+                <div className="mt-3 border-t border-blue-200/50 pt-3 flex flex-col gap-1">
+                  <label className="text-sm font-bold text-navy">
+                    Notification Cooldown (Minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={form.notification_cooldown_minutes || 30}
+                    onChange={(e) => setForm({ ...form, notification_cooldown_minutes: parseInt(e.target.value) || 30 })}
+                    className="w-32 text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                    placeholder="30"
+                  />
+                  <span className="text-[10px] text-navy/60">Deduplicates agent alert notifications within this timeframe.</span>
+                </div>
               </div>
             </div>
           </Section>
@@ -865,15 +969,24 @@ export default function BusinessProfile() {
                             )}
                           </td>
                           <td className="p-4">
-                            {u.id !== currentUser.id && (
+                            <div className="flex items-center gap-3">
                               <button
                                 type="button"
-                                onClick={() => handleToggleUserStatus(u.id, u.status)}
-                                className={`font-bold text-xs px-3 py-1.5 rounded border transition-colors ${u.status === 'suspended' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}
+                                onClick={() => setEditingUser(u)}
+                                className="font-bold text-xs px-3 py-1.5 rounded border border-grey-light text-navy hover:bg-grey-50 transition-colors"
                               >
-                                {u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                                Edit Profile
                               </button>
-                            )}
+                              {u.id !== currentUser.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserStatus(u.id, u.status)}
+                                  className={`font-bold text-xs px-3 py-1.5 rounded border transition-colors ${u.status === 'suspended' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}
+                                >
+                                  {u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -886,6 +999,198 @@ export default function BusinessProfile() {
                 )}
               </div>
             </Section>
+          </div>
+        )}
+
+        {activeSettingsTab === "routing" && (
+          <div className="space-y-6">
+            <div className="bg-white border border-grey-light rounded-xl shadow-sm p-6">
+              <div className="flex items-center space-x-3 mb-6">
+                <Zap className="h-6 w-6 text-navy" />
+                <div>
+                  <h2 className="text-lg font-bold text-navy">Department Routing & Notifications</h2>
+                  <p className="text-xs text-grey-500">Configure alert channels, primary contact agents, and escalation paths for each department.</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {form.departments?.map((dept) => {
+                  const config = routingConfigs.find((c) => c.department === dept) || {
+                    department: dept,
+                    display_name: dept.charAt(0).toUpperCase() + dept.slice(1),
+                    notification_phone: "",
+                    notification_email: "",
+                    primary_user_id: "",
+                    routing_enabled: true,
+                    whatsapp_enabled: true,
+                    email_enabled: true,
+                    escalation_enabled: false,
+                    escalation_timeout_minutes: 30,
+                    escalation_user_id: "",
+                    escalation_level2_user_id: "",
+                    property_id: ""
+                  };
+
+                  const isConfigured = config.notification_phone || config.notification_email || config.primary_user_id;
+
+                  return (
+                    <div key={dept} className="border border-grey-light rounded-xl p-6 bg-grey-50 space-y-4">
+                      <div className="flex items-center justify-between border-b border-grey-light pb-4">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-bold text-navy uppercase tracking-wider">{dept}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${config.routing_enabled && isConfigured ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                            {config.routing_enabled && isConfigured ? "Active" : "Not Configured / Inactive"}
+                          </span>
+                        </div>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={config.routing_enabled}
+                            onChange={(e) => handleSaveRoutingConfig({ ...config, routing_enabled: e.target.checked })}
+                            className="rounded text-navy border-grey-light focus:ring-navy"
+                          />
+                          <span className="text-xs font-bold text-navy uppercase">Routing Enabled</span>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Column 1: Channels */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Alert Channels</h3>
+                          <label className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={config.whatsapp_enabled}
+                              onChange={(e) => handleSaveRoutingConfig({ ...config, whatsapp_enabled: e.target.checked })}
+                              className="rounded text-navy border-grey-light focus:ring-navy"
+                            />
+                            <span className="text-sm text-navy">WhatsApp Notification</span>
+                          </label>
+                          {config.whatsapp_enabled && (
+                            <input
+                              type="text"
+                              value={config.notification_phone || ""}
+                              onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_phone", e.target.value)}
+                              onBlur={() => handleSaveRoutingConfig(config)}
+                              placeholder="e.g. +2348131608061"
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            />
+                          )}
+
+                          <label className="flex items-center space-x-3 cursor-pointer mt-2">
+                            <input
+                              type="checkbox"
+                              checked={config.email_enabled}
+                              onChange={(e) => handleSaveRoutingConfig({ ...config, email_enabled: e.target.checked })}
+                              className="rounded text-navy border-grey-light focus:ring-navy"
+                            />
+                            <span className="text-sm text-navy">Email Notification</span>
+                          </label>
+                          {config.email_enabled && (
+                            <input
+                              type="email"
+                              value={config.notification_email || ""}
+                              onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_email", e.target.value)}
+                              onBlur={() => handleSaveRoutingConfig(config)}
+                              placeholder="e.g. sales@company.com"
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            />
+                          )}
+                        </div>
+
+                        {/* Column 2: Assignment */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Primary Assignment</h3>
+                          <div>
+                            <label className="block text-xs font-bold text-navy uppercase mb-1">Primary Agent</label>
+                            <select
+                              value={config.primary_user_id || ""}
+                              onChange={(e) => handleSaveRoutingConfig({ ...config, primary_user_id: e.target.value })}
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            >
+                              <option value="">-- Select Agent --</option>
+                              {users.filter(u => u.department === dept).map((u) => (
+                                <option key={u.id} value={u.id}>{u.email}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {properties.length > 0 && (
+                            <div>
+                              <label className="block text-xs font-bold text-navy uppercase mb-1">Branch / Property Context</label>
+                              <select
+                                value={config.property_id || ""}
+                                onChange={(e) => handleSaveRoutingConfig({ ...config, property_id: e.target.value || null })}
+                                className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                              >
+                                <option value="">-- All Properties --</option>
+                                {properties.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 3: Escalation */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Escalation Path</h3>
+                          <label className="flex items-center space-x-3 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={config.escalation_enabled}
+                              onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_enabled: e.target.checked })}
+                              className="rounded text-navy border-grey-light focus:ring-navy"
+                            />
+                            <span className="text-sm text-navy">Enable Escalation</span>
+                          </label>
+
+                          {config.escalation_enabled && (
+                            <>
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Escalate After (Minutes)</label>
+                                <input
+                                  type="number"
+                                  value={config.escalation_timeout_minutes || 30}
+                                  onChange={(e) => handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", parseInt(e.target.value))}
+                                  onBlur={() => handleSaveRoutingConfig(config)}
+                                  className="w-full text-sm border border-grey-light rounded bg-white px-3 py-1.5 focus:outline-none focus:border-navy"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Level 1 Escalation Manager</label>
+                                <select
+                                  value={config.escalation_user_id || ""}
+                                  onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_user_id: e.target.value })}
+                                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                                >
+                                  <option value="">-- Select Manager --</option>
+                                  {users.map((u) => (
+                                    <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Level 2 General Manager</label>
+                                <select
+                                  value={config.escalation_level2_user_id || ""}
+                                  onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_level2_user_id: e.target.value })}
+                                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                                >
+                                  <option value="">-- Select General Manager --</option>
+                                  {users.map((u) => (
+                                    <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -990,6 +1295,110 @@ export default function BusinessProfile() {
             </Section>
           </div>
         )}
+      {/* User Editing Modal Popup */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-navy/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl border border-grey-light shadow-2xl w-full max-w-lg overflow-hidden transform scale-100 transition-all duration-300">
+            <div className="bg-navy p-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold">Edit Team Member</h3>
+                <p className="text-xs text-white/70">{editingUser.email}</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEditingUser(null)}
+                className="text-white/80 hover:text-white text-lg font-bold"
+              >
+                &times;
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveUserEdit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Phone Number (WhatsApp alerts)</label>
+                <input
+                  type="text"
+                  value={editingUser.phone || ""}
+                  onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+                  placeholder="e.g. +234 813 160 8061"
+                  className="w-full text-sm border border-grey-light rounded px-3 py-1.5 focus:outline-none focus:border-navy focus:ring-1 focus:ring-navy"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Department</label>
+                <select
+                  value={editingUser.department || "general"}
+                  onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  {form.departments?.map((dept) => (
+                    <option key={dept} value={dept}>{dept.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Role Tier</label>
+                <select
+                  value={editingUser.role || "agent"}
+                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  <option value="owner">Owner / Administrator</option>
+                  <option value="admin">Department Manager</option>
+                  <option value="support_agent">Supervisor</option>
+                  <option value="agent">Staff / Officer</option>
+                  <option value="viewer">Viewer (Read-Only)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Notification Preference</label>
+                <select
+                  value={editingUser.notification_preference || "all"}
+                  onChange={(e) => setEditingUser({ ...editingUser, notification_preference: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  <option value="all">Both WhatsApp & Email</option>
+                  <option value="whatsapp">WhatsApp Only</option>
+                  <option value="email">Email Only</option>
+                  <option value="none">No Alerts</option>
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-3 py-2">
+                <input
+                  type="checkbox"
+                  id="user_receive_alerts"
+                  checked={editingUser.receive_operational_alerts !== false}
+                  onChange={(e) => setEditingUser({ ...editingUser, receive_operational_alerts: e.target.checked })}
+                  className="rounded border-grey-light text-navy focus:ring-navy h-4 w-4"
+                />
+                <label htmlFor="user_receive_alerts" className="text-sm font-medium text-navy cursor-pointer">
+                  Receive operational alerts (WhatsApp/Email)
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-grey-light">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 border border-grey-light hover:bg-grey-50 text-navy text-sm font-semibold rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-navy hover:bg-navy-light text-white text-sm font-semibold rounded-lg transition-all shadow-md"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       </div>
     </div>
     </div>
