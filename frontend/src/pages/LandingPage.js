@@ -208,126 +208,94 @@ const LandingPage = () => {
     }
   };
 
-  const pricingPlans = [
-    {
-      id: "custom",
-      name: "Custom",
-      price: "Custom",
-      conversations: "Unlimited",
-      tokens: "Custom Quota",
-      tagline: "For organizations requiring bespoke AI solutions, private databases, and custom integrations.",
-      features: [
-        "Unlimited AI Conversations & Agents",
-        "Dedicated Private Infrastructure",
-        "Bespoke System Integrations",
-        "Investigations Workspace Access",
-        "Dedicated Success Manager & SLA",
-        "Custom APIs & Integrations"
-      ]
-    },
-    {
-      id: "enterprise",
-      name: "Enterprise",
-      price: "₦750,000",
-      conversations: "Unlimited",
-      tokens: "50,000,000",
-      tagline: "For multi-location organizations requiring enterprise AI operations, intelligence, automation, and security.",
-      features: [
-        "Unlimited AI Conversations & Agents",
-        "Enterprise CRM & Intelligence Graph",
-        "Multi-Location Workspace Management",
-        "Dedicated Private Infrastructure",
-        "ARGUS Security Surveillance Suite"
-      ]
-    },
-    {
-      id: "pro",
-      name: "Pro",
-      price: "₦250,000",
-      conversations: "10,000",
-      tokens: "5,000,000",
-      tagline: "Built for businesses ready to scale intelligently and operate like an enterprise.",
-      features: [
-        "Includes Everything in Growth",
-        "Premium Digital Presence Included",
-        "Custom UI/UX & Up to 12 Pages",
-        "Online Booking Calendar Configuration",
-        "Advanced CRM & Custom API Integration",
-        "Analytics Dashboard & Speed Optimization",
-        "Hosting & SSL Security Included"
-      ]
-    },
-    {
-      id: "growth",
-      name: "Growth",
-      price: "₦120,000",
-      conversations: "2,000",
-      tokens: "1,000,000",
-      tagline: "Everything needed to launch and grow a professional digital business.",
-      popular: true,
-      features: [
-        "Includes Everything in Starter",
-        "Professional Digital Presence Included",
-        "Mobile Responsive & SEO Ready",
-        "Up to 6 Pages & Contact Forms",
-        "WhatsApp & Google Maps Integration",
-        "Admin-Managed Deployment",
-        "Unlimited Custom Workflows"
-      ]
-    },
-    {
-      id: "starter",
-      name: "Starter",
-      price: "₦60,000",
-      conversations: "500",
-      tokens: "250,000",
-      tagline: "For ambitious businesses ready to automate customer conversations and stop missing opportunities.",
-      features: [
-        "AI Receptionist & Automation",
-        "WhatsApp Bot Integration",
-        "Lead Capture & CRM Sync",
-        "Unlimited Custom Workflows",
-        "No Feature Restrictions",
-        "No Website Included"
-      ]
-    }
-  ];
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditSubmitting, setAuditSubmitting] = useState(false);
+  const [auditSubmitted, setAuditSubmitted] = useState(false);
+  const [auditForm, setAuditForm] = useState({
+    business_name: '',
+    contact_name: '',
+    email: '',
+    phone: '',
+    industry: 'hotel',
+    employee_count: '10-50',
+    audit_scope: ''
+  });
 
-  const comparisonRows = [
-    { name: "Monthly Price", custom: "Custom Quote", enterprise: "₦750,000", pro: "₦250,000", growth: "₦120,000", starter: "₦60,000" },
-    { name: "AI Conversations", custom: "Unlimited", enterprise: "Unlimited", pro: "≈ 10,000", growth: "≈ 2,000", starter: "≈ 500" },
-    { name: "Token Allocation", custom: "Custom Quota", enterprise: "50,000,000", pro: "5,000,000", growth: "1,000,000", starter: "250,000" },
-    { name: "AI Receptionist & CRM", custom: "✓ Dedicated CRM", enterprise: "✓ Enterprise CRM", pro: "✓ Included", growth: "✓ Included", starter: "✓ Included" },
-    { name: "WhatsApp & Web Bot", custom: "✓ Dedicated Integration", enterprise: "✓ Unlimited Bots", pro: "✓ Included", growth: "✓ Included", starter: "✓ Included" },
-    { name: "Digital Presence", custom: "Bespoke Portals", enterprise: "Tailored Custom Portals", pro: "✓ Premium Presence (up to 12 pages)", growth: "✓ Professional Presence (up to 6 pages)", starter: "❌ No" },
-    { name: "Online Booking Calendar", custom: "✓ Custom Rules", enterprise: "✓ Advanced Custom Rules", pro: "✓ Included", growth: "❌ No", starter: "❌ No" },
-    { name: "Surveillance Camera Streams", custom: "✓ Private Servers", enterprise: "✓ Unlimited Video Feeds", pro: "✓ Live Preview", growth: "❌ No", starter: "❌ No" },
-    { name: "Security & Risk Center", custom: "✓ Private Infrastructure", enterprise: "✓ Full Suite & Workspace", pro: "✓ Live Preview", growth: "❌ No", starter: "❌ No" },
-    { name: "Investigation Workspace", custom: "✓ SLA Covered", enterprise: "✓ Full Suite & Timeline", pro: "✓ Live Preview", growth: "❌ No", starter: "❌ No" },
-    { name: "Intelligence Graph", custom: "✓ Private Nodes", enterprise: "✓ Full Resolve Nodes", pro: "✓ Live Preview", growth: "❌ No", starter: "❌ No" },
-    { name: "Support SLA", custom: "Custom Dedicated Support", enterprise: "Dedicated 24/7 Success Manager", pro: "Priority 24/7 Support", growth: "Standard Support", starter: "Standard Support" }
+  const handleAuditSubmit = async (e) => {
+    e.preventDefault();
+    setAuditSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/entitlements/request-audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(auditForm)
+      });
+      if (res.ok) {
+        setAuditSubmitted(true);
+      } else {
+        alert('Failed to submit audit request. Please try again.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error submitting audit request.');
+    } finally {
+      setAuditSubmitting(false);
+    }
+  };
+
+  const auditSteps = [
+    {
+      step: "01",
+      title: "Business Signal Audit",
+      desc: "Our platform specialists study how your business communicates across channels, manages guest/patient folios, operates inventory, and monitors physical premises.",
+      icon: "Radar"
+    },
+    {
+      step: "02",
+      title: "Diagnostic Blueprint",
+      desc: "We identify operational bottlenecks, revenue leaks, unhandled customer enquiries, and security blindspots across your department workflows.",
+      icon: "FileCode"
+    },
+    {
+      step: "03",
+      title: "Custom OS Architecture",
+      desc: "We design a tailored InteracAI operating system with exact industry modules (Hospitality, Healthcare, Retail, etc.), AI agent personalities, and automated workflows.",
+      icon: "Layers"
+    },
+    {
+      step: "04",
+      title: "Entitlement Provisioning",
+      desc: "An InteracAI administrator provisions your custom quotas, staff seats, ARGUS intelligence rules, and integrations under a clear, itemized enterprise agreement.",
+      icon: "ShieldCheck"
+    },
+    {
+      step: "05",
+      title: "Continuous Intelligence",
+      desc: "Your dedicated account engineer monitors operations, tunes AI copilot models, and seamlessly scales capacity as your organization expands.",
+      icon: "Sparkles"
+    }
   ];
 
   const landingFaqs = [
     {
-      q: "What is the website offering included in Growth and Pro plans?",
-      a: "Growth and Pro plans include professional website development to launch your business online. The Growth plan delivers a responsive 6-page site, contact forms, and WhatsApp integration. The Pro plan adds premium custom UI/UX design, up to 12 pages, an integrated blog, portfolio showcase, online booking system, custom API/CRM integrations, and fully managed hosting and SSL security."
+      q: "Why does InteracAI conduct a Business Signal Audit before pricing?",
+      a: "Every organization operates differently. A 100-room luxury hotel requires different guest concierge, housekeeping dispatch, POS sync, and CCTV security than a multi-branch retail chain or a medical hospital. We first diagnose your exact operational workflows and signal density so you only pay for the precise intelligence and capacity your business needs."
     },
     {
-      q: "Are there revision limits for website development?",
-      a: "We are committed to building an outstanding digital presence for your brand. While we do not promise unlimited design revisions, all future content updates, service additions, and layout tweaks are managed directly and seamlessly through your InteracAI subscription platform."
+      q: "What is included in the Business Signal Audit?",
+      a: "The audit evaluates your inbound customer touchpoints (WhatsApp, Web, Phone), booking/folio processes, department handoffs, staff access levels, legacy software (PMS, POS, EMR), and physical surveillance infrastructure to produce an executive diagnostic blueprint."
     },
     {
-      q: "Why does the Starter plan not include a website?",
-      a: "The Starter plan is built for companies that already have active websites or only need AI receptionist automation and custom CRM workflows. You can easily upgrade to Growth or Pro to add website development at any time."
+      q: "Can our organization run a pilot or trial period?",
+      a: "Yes. Following the signal audit, InteracAI can provision a time-bound Pilot Environment (typically 14 to 30 days) with tailored capabilities and token allowances to prove ROI on real customer interactions."
     },
     {
-      q: "How are custom domains, hosting, and SSL certificates handled?",
-      a: "Standard cloud hosting and security certificates (SSL) are completely covered by your monthly Pro subscription. For the Growth plan, users host their website externally or upgrade to Pro for managed hosting. If you own a custom domain, our engineering team will assist Pro subscribers in mapping it."
+      q: "How are custom agreements and monthly fees structured?",
+      a: "Commercial terms are transparent and itemized: an initial implementation & onboarding fee, followed by a predictable platform fee based on your active modules, staff seats, and agreed monthly AI conversation allowances."
     },
     {
-      q: "What happens if I exhaust my monthly AI conversation limits?",
-      a: "If you consume your monthly conversation quota, you can purchase Pay-As-You-Go (PAYG) token refills. PAYG tokens never expire and are only used after your monthly plan allocation is fully exhausted."
+      q: "What happens if our business expands or exceeds usage allowances?",
+      a: "Your dedicated InteracAI Account Specialist can instantly adjust your conversation quotas or activate additional industry capabilities. You also have access to on-demand PAYG token refills that never expire."
     }
   ];
 
@@ -1269,127 +1237,76 @@ const LandingPage = () => {
         </div>
       </section>
 
-      {/* Pricing, Comparison & FAQ Section */}
+      {/* Business Signal Audit & Tailored Operating System Architecture Section */}
       <section id="pricing" className="py-32 bg-[#020617] relative border-t border-white/5">
         <div className="max-w-7xl mx-auto px-6">
-          <div className="text-center mb-24">
-            <h2 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight">
-              Simple, Transparent <span className="text-gradient">Pricing</span>
+          <div className="text-center mb-20">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-bold uppercase tracking-[0.2em] mb-6 border border-indigo-500/20">
+              <Sparkles size={14} />
+              <span>Tailored Platform Architecture</span>
+            </div>
+            <h2 className="text-4xl md:text-6xl font-black mb-6 tracking-tight text-white">
+              Every business is unique. <br />
+              <span className="text-gradient">Your operating system should be too.</span>
             </h2>
-            <p className="text-xl text-slate-400 max-w-2xl mx-auto leading-relaxed font-medium">
-              No hidden fees. Every plan includes full access to our workflow engine. Upgrade to include website development.
+            <p className="text-lg md:text-xl text-slate-400 max-w-3xl mx-auto leading-relaxed font-medium">
+              We don't put every business into the same software package. InteracAI studies how your organization communicates, operates, and generates signals—then custom-designs and provisions your operating platform.
             </p>
+
+            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-5">
+              <button
+                onClick={() => setShowAuditModal(true)}
+                className="btn-primary px-10 py-5 text-lg shadow-[0_0_50px_-12px_rgba(99,102,241,0.5)] flex items-center gap-3"
+              >
+                <span>Request Your Business Signal Audit</span>
+                <ArrowRight size={20} />
+              </button>
+              <a href="#book-demo">
+                <button className="btn-outline px-8 py-5 text-lg bg-white/5">
+                  Talk to an InteracAI Specialist
+                </button>
+              </a>
+            </div>
           </div>
 
-          {/* Pricing cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 xl:gap-8 mb-24 items-stretch">
-            {pricingPlans.map((plan) => (
+          {/* 5-Step Process Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-24 items-stretch">
+            {auditSteps.map((step, idx) => (
               <div 
-                key={plan.id}
-                className={`flex flex-col relative p-6 rounded-[32px] border-2 transition-all duration-500 hover:-translate-y-2 ${
-                  plan.popular 
-                    ? 'bg-[#0f172a] border-indigo-500 shadow-[0_0_50px_-12px_rgba(99,102,241,0.4)] z-10 scale-105' 
-                    : 'bg-[#0b1329]/40 border-white/5 shadow-xl'
-                }`}
+                key={idx}
+                className="glass-card p-6 rounded-3xl border border-white/5 flex flex-col justify-between hover:border-indigo-500/30 transition-all duration-300 group"
               >
-                {plan.popular && (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-indigo-500 text-white px-6 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
-                    Most Popular
+                <div>
+                  <div className="text-3xl font-black text-indigo-400/40 group-hover:text-indigo-400 transition-colors mb-4 font-mono">
+                    {step.step}
                   </div>
-                )}
-
-                <div className="mb-6">
-                  <h3 className="text-xl font-black uppercase tracking-tight mb-3 text-white">{plan.name}</h3>
-                  <p className="text-xs text-slate-400 font-semibold leading-normal min-h-[50px]">{plan.tagline}</p>
-                  <div className="flex items-baseline gap-1 mt-4">
-                    <span className="text-2xl font-black text-white">{plan.price}</span>
-                    {plan.id !== 'custom' && <span className="text-slate-500 font-bold text-xs">/mo</span>}
-                  </div>
+                  <h3 className="text-lg font-black text-white mb-2">{step.title}</h3>
+                  <p className="text-xs text-slate-400 font-medium leading-relaxed">{step.desc}</p>
                 </div>
-
-                <div className="flex-1 flex flex-col space-y-4 mb-8 py-4 border-y border-white/5">
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full text-indigo-300 text-[10px] font-bold w-fit">
-                    <Zap size={10} className="fill-indigo-300 text-indigo-300" />
-                    {plan.id === 'enterprise' || plan.id === 'custom' ? 'Unlimited conversations' : `≈ ${plan.conversations} conversations / month`}
-                  </div>
-                  <div className="text-slate-400 text-[10px] font-bold">
-                    {plan.id === 'enterprise' || plan.id === 'custom' ? 'Custom SLA & Dedicated Deploy' : `(${plan.tokens} Tokens included)`}
-                  </div>
-                  
-                  <div className="space-y-2 pt-2">
-                    {plan.features.map((feat, idx) => {
-                      const isNoWeb = feat.includes("No Website");
-                      return (
-                        <div 
-                          key={idx} 
-                          className={`flex items-start gap-2 text-xs ${
-                            isNoWeb ? 'text-slate-500 font-medium' : (feat.includes("Presence Included") && (plan.id === 'growth' || plan.id === 'pro')) ? 'text-indigo-400 font-bold' : 'text-slate-300 font-medium'
-                          }`}
-                        >
-                          {isNoWeb ? (
-                            <span className="text-red-500 font-bold text-xs flex-shrink-0 mt-0.5">✕</span>
-                          ) : (
-                            <CheckCircle2 size={14} className="text-green-500 flex-shrink-0 mt-0.5" />
-                          )}
-                          <span>{feat}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="mt-6 pt-4 border-t border-white/5 flex items-center gap-1.5 text-[11px] font-bold text-indigo-300">
+                  <span>Tailored Phase</span>
+                  <CheckCircle2 size={13} className="text-indigo-400" />
                 </div>
-
-                {plan.id === 'enterprise' || plan.id === 'custom' ? (
-                  <a href="#book-demo" className="w-full">
-                    <button className="w-full py-3.5 rounded-xl font-bold transition-all active:scale-95 bg-white/10 hover:bg-white/20 text-white text-xs">
-                      Contact Sales
-                    </button>
-                  </a>
-                ) : (
-                  <Link to="/login" className="w-full">
-                    <button className={`w-full py-3.5 rounded-xl font-bold transition-all active:scale-95 text-xs ${
-                      plan.popular 
-                        ? 'bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-500/20' 
-                        : 'bg-white/10 hover:bg-white/20 text-white'
-                    }`}>
-                      Get Started
-                    </button>
-                  </Link>
-                )}
               </div>
             ))}
           </div>
 
-          {/* Detailed Feature Comparison */}
-          <div className="mb-24 glass-card p-8 md:p-12 rounded-[32px] border border-white/5 overflow-hidden">
-            <h3 className="text-3xl font-extrabold mb-8 text-center tracking-tight text-white">Compare Plans & Features</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-white/5 text-xs font-black uppercase text-slate-500 tracking-wider">
-                    <th className="py-5 pr-4 text-slate-400">Feature</th>
-                    <th className="py-5 px-4 text-center text-indigo-400 bg-indigo-500/5 rounded-t-2xl">Custom</th>
-                    <th className="py-5 px-4 text-center text-amber-400 bg-amber-500/5">Enterprise</th>
-                    <th className="py-5 px-4 text-center text-slate-400">Pro</th>
-                    <th className="py-5 px-4 text-center text-slate-400">Growth</th>
-                    <th className="py-5 pl-4 text-center text-slate-400">Starter</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm font-semibold text-slate-300">
-                  {comparisonRows.map((feat, i) => (
-                    <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                      <td className="py-4 pr-4">
-                        <div className="font-bold text-white">{feat.name}</div>
-                      </td>
-                      <td className="py-4 px-4 text-center bg-indigo-500/5 font-bold text-indigo-300">{feat.custom}</td>
-                      <td className="py-4 px-4 text-center bg-amber-500/5 font-bold text-amber-300">{feat.enterprise}</td>
-                      <td className="py-4 px-4 text-center font-bold text-white">{feat.pro}</td>
-                      <td className="py-4 px-4 text-center text-slate-400 font-medium">{feat.growth}</td>
-                      <td className="py-4 pl-4 text-center text-slate-500 font-medium">{feat.starter}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Signal Audit Banner */}
+          <div className="p-8 md:p-12 rounded-[36px] bg-gradient-to-r from-indigo-900/30 via-slate-900/40 to-blue-900/30 border border-indigo-500/20 mb-24 flex flex-col lg:flex-row items-center justify-between gap-8">
+            <div className="max-w-2xl">
+              <h3 className="text-2xl md:text-3xl font-black text-white mb-3">
+                Ready to diagnose and automate your operational signals?
+              </h3>
+              <p className="text-sm text-slate-300 font-medium leading-relaxed">
+                Our principal platform engineers will analyze your customer channels, booking flows, department structures, and surveillance feeds to construct your custom blueprint.
+              </p>
             </div>
+            <button
+              onClick={() => setShowAuditModal(true)}
+              className="px-8 py-4 bg-white text-navy font-black text-sm rounded-2xl hover:bg-slate-100 transition shadow-xl active:scale-95 shrink-0"
+            >
+              Request Free Signal Audit
+            </button>
           </div>
 
           {/* FAQ Section */}
@@ -1623,6 +1540,148 @@ const LandingPage = () => {
           </div>
         </div>
       </footer>
+
+      {/* Business Signal Audit Intake Modal */}
+      {showAuditModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+          <div className="bg-[#0b1329] w-full max-w-xl rounded-[32px] p-8 border border-white/10 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => { setShowAuditModal(false); setAuditSubmitted(false); }}
+              className="absolute top-6 right-6 text-slate-400 hover:text-white transition"
+            >
+              <X size={22} />
+            </button>
+
+            {auditSubmitted ? (
+              <div className="py-12 text-center space-y-4">
+                <div className="w-16 h-16 bg-emerald-500/10 text-emerald-400 rounded-3xl flex items-center justify-center mx-auto border border-emerald-500/20">
+                  <CheckCircle2 size={36} />
+                </div>
+                <h3 className="text-2xl font-black text-white">Signal Audit Request Received</h3>
+                <p className="text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Thank you! An InteracAI platform engineer has been assigned to your organization and will reach out within 24 business hours to conduct your diagnostic audit.
+                </p>
+                <button
+                  onClick={() => { setShowAuditModal(false); setAuditSubmitted(false); }}
+                  className="mt-6 px-8 py-3.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition"
+                >
+                  Close Window
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleAuditSubmit} className="space-y-5">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-[10px] font-black uppercase tracking-wider mb-3 border border-indigo-500/20">
+                    <Sparkles size={12} />
+                    <span>Free Operational Diagnostic</span>
+                  </div>
+                  <h3 className="text-2xl font-black text-white">Request Your Business Signal Audit</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Tell us about your organization. We will design your custom operating blueprint.
+                  </p>
+                </div>
+
+                <div className="space-y-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Business Name *</label>
+                    <input 
+                      type="text"
+                      required
+                      placeholder="e.g. Amber Court Luxury Hotel"
+                      value={auditForm.business_name}
+                      onChange={(e) => setAuditForm({ ...auditForm, business_name: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Contact Name *</label>
+                      <input 
+                        type="text"
+                        required
+                        placeholder="John Doe"
+                        value={auditForm.contact_name}
+                        onChange={(e) => setAuditForm({ ...auditForm, contact_name: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Corporate Email *</label>
+                      <input 
+                        type="email"
+                        required
+                        placeholder="john@organization.com"
+                        value={auditForm.email}
+                        onChange={(e) => setAuditForm({ ...auditForm, email: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Phone / WhatsApp</label>
+                      <input 
+                        type="tel"
+                        placeholder="+234..."
+                        value={auditForm.phone}
+                        onChange={(e) => setAuditForm({ ...auditForm, phone: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Industry Sector</label>
+                      <select 
+                        value={auditForm.industry}
+                        onChange={(e) => setAuditForm({ ...auditForm, industry: e.target.value })}
+                        className="w-full bg-[#030712] border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="hotel">Hospitality & Hotels</option>
+                        <option value="hospital">Healthcare & Clinics</option>
+                        <option value="retail">Retail & Multi-Branch Commerce</option>
+                        <option value="school">Education & Campuses</option>
+                        <option value="estate">Real Estate & Facilities</option>
+                        <option value="manufacturing">Manufacturing</option>
+                        <option value="general">General Enterprise</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">Primary Operational Challenges / Goals</label>
+                    <textarea 
+                      rows={3}
+                      placeholder="e.g. Automate WhatsApp customer enquiries, sync room folios with Opera PMS, detect unstaffed front desk via CCTV..."
+                      value={auditForm.audit_scope}
+                      onChange={(e) => setAuditForm({ ...auditForm, audit_scope: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3.5 text-sm font-medium text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    ></textarea>
+                  </div>
+                </div>
+
+                <div className="pt-4 flex items-center justify-end gap-3 border-t border-white/10">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAuditModal(false)}
+                    className="px-5 py-3 text-xs font-bold text-slate-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    disabled={auditSubmitting}
+                    className="btn-primary px-8 py-3.5 text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {auditSubmitting ? 'Submitting...' : 'Submit Audit Request'}
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Lead Capture Modal */}
       <LeadCaptureModal 

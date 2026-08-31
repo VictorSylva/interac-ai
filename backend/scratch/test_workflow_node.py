@@ -48,7 +48,7 @@ async def test_notify_agent_whatsapp():
     try:
         # Mock should_notify_agent to return True
         import services.workflow_engine
-        async def mock_should_notify_agent_true(business_id: str, user_id: str):
+        async def mock_should_notify_agent_true(*args, **kwargs):
             return True
         services.workflow_engine.should_notify_agent = mock_should_notify_agent_true
         
@@ -67,7 +67,7 @@ async def test_notify_agent_whatsapp():
     called_args.clear()
     try:
         # Mock should_notify_agent to return False
-        async def mock_should_notify_agent_false(business_id: str, user_id: str):
+        async def mock_should_notify_agent_false(*args, **kwargs):
             return False
         services.workflow_engine.should_notify_agent = mock_should_notify_agent_false
         

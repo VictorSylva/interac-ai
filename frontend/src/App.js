@@ -88,6 +88,8 @@ function App() {
 
           
           <Route path="/super-admin" element={<ProtectedRoute requiredRole="super_admin"><SuperAdminDashboard /></ProtectedRoute>} />
+          <Route path="/superadmin" element={<ProtectedRoute requiredRole="super_admin"><SuperAdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute requiredRole="super_admin"><SuperAdminDashboard /></ProtectedRoute>} />
           <Route path="/demo" element={<DemoMultiBusinessPage />} />
           <Route path="/demo/:industry" element={<IndustryDemo />} />
           <Route path="/:businessSlug/:offerSlug" element={<SalesPageTemplate />} />

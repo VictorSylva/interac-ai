@@ -429,3 +429,48 @@ def require_permission(permission: str):
             raise HTTPException(status_code=403, detail=f"Permission denied: Requires {permission}")
         return current_user
     return dependency
+
+def require_entitlement(entitlement_key: str):
+    """
+    Zero-Trust Multi-Tenant Guard:
+    Verifies that the tenant business itself is entitled to use this capability.
+    Runs BEFORE user RBAC permission evaluation.
+    """
+    async def dependency(current_user: dict = Depends(get_current_user)):
+        from services.entitlement_service import entitlement_service
+        business_id = current_user.get("business_id")
+        
+        # Super admin bypass
+        if current_user.get("role") == "super_admin":
+            return current_user
+
+        if not business_id:
+            raise HTTPException(status_code=403, detail="Tenant context missing")
+
+        is_allowed = await entitlement_service.is_entitled(business_id, entitlement_key)
+        if not is_allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Business is not entitled to use '{entitlement_key}'. Contact your InteracAI administrator to provision this capability."
+            )
+        return current_user
+    return dependency
+
+def require_department(allowed_departments: List[str]):
+    """
+    Operational Scope Guard:
+    Verifies that an employee's department matches the required operational scope.
+    """
+    async def dependency(current_user: dict = Depends(get_current_user)):
+        if current_user.get("role") in ["owner", "super_admin", "admin", "general_manager"]:
+            return current_user
+            
+        user_dept = (current_user.get("department") or "general").lower()
+        allowed = [d.lower() for d in allowed_departments]
+        if user_dept not in allowed and "general" not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Department access restricted: User in '{user_dept}', requires one of {allowed_departments}"
+            )
+        return current_user
+    return dependency

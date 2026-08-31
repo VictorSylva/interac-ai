@@ -113,11 +113,12 @@ class WorkflowEngine:
                     workflow_id=wf.id,
                     business_id=business_id,
                     trigger_event=trigger_data,
-                    context_data={"trigger": trigger_data, "business_id": business_id},
+                    context_data={"trigger": trigger_data, "business_id": business_id, "execution_id": None},
                     status="running"
                 )
                 session.add(execution)
                 await session.flush() # Get ID
+                execution.context_data = {**execution.context_data, "execution_id": execution.id}
                 
                 # Find Start Node
                 # 1. First try generic 'start' type (The "Start Trigger" node in UI)
@@ -387,11 +388,12 @@ class WorkflowEngine:
                     workflow_id=wf.id,
                     business_id=business_id,
                     trigger_event=trigger_data,
-                    context_data={"trigger": trigger_data},
+                    context_data={"trigger": trigger_data, "execution_id": None},
                     status="running"
                 )
             session.add(execution)
             await session.flush()
+            execution.context_data = {**execution.context_data, "execution_id": execution.id}
             
             # Find Start Node
             start_node_stmt = select(WorkflowNode).where(
@@ -647,50 +649,49 @@ def hydrate_text(text: str, context: dict):
         
     return re.sub(r'\{\{(.*?)\}\}', replace_var, text)
 
-async def should_notify_agent(business_id: str, user_id: str) -> bool:
+async def should_notify_agent(business_id: str, user_id: str, workflow_id: str, current_execution_id: str = None) -> bool:
     """
     Checks if we should send a notification to the agent for this message.
-    Returns True if this is the first message in the conversation, or if
-    the last customer message was sent more than 30 minutes ago (new session).
+    Returns True if no notification has been successfully sent to this user
+    for this workflow in the last 30 minutes.
     """
-    if not business_id or not user_id:
+    if not business_id or not user_id or not workflow_id:
         return True # Default to notify if we can't check
         
     from services.db_service import resolve_business_id
     real_business_id = await resolve_business_id(business_id)
-    convo_id = f"{real_business_id}:{user_id}"
     
     from database.session import AsyncSessionLocal
-    from database.models.chat import Message
+    from database.models.workflow import WorkflowExecution
+    from datetime import datetime, timedelta
     from sqlalchemy import select
     
     async with AsyncSessionLocal() as session:
         try:
-            # Query last 2 customer messages in this conversation
+            cutoff = datetime.utcnow() - timedelta(minutes=30)
+            
+            # Query executions for this workflow in the last 30 minutes
             stmt = (
-                select(Message)
-                .where(Message.conversation_id == convo_id, Message.sender == "customer")
-                .order_by(Message.timestamp.desc())
-                .limit(2)
+                select(WorkflowExecution)
+                .where(
+                    WorkflowExecution.workflow_id == workflow_id,
+                    WorkflowExecution.started_at >= cutoff
+                )
             )
+            if current_execution_id:
+                stmt = stmt.where(WorkflowExecution.id != current_execution_id)
+                
             result = await session.execute(stmt)
-            messages = result.scalars().all()
+            executions = result.scalars().all()
             
-            # If this is the only message (count == 1), definitely notify
-            if len(messages) <= 1:
-                return True
-                
-            # If there are multiple messages, check the gap between the latest and the previous one
-            latest_msg = messages[0]
-            prev_msg = messages[1]
-            
-            time_gap = (latest_msg.timestamp - prev_msg.timestamp).total_seconds()
-            
-            # Notify only if the gap is greater than 30 minutes (1800 seconds)
-            if time_gap > 1800:
-                return True
-                
-            return False
+            # Check if any execution was for this user
+            for exc in executions:
+                exc_trigger = exc.trigger_event or {}
+                exc_user = exc_trigger.get("user_id") or exc_trigger.get("from_number")
+                if exc_user == user_id:
+                    return False # Already notified in the last 30 minutes
+                    
+            return True
         except Exception as e:
             logger.error(f"[WorkflowEngine] Error checking notification throttle: {e}")
             return True # Fallback to notify
@@ -818,6 +819,8 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             # Throttling to prevent spamming the agent on every message in the same conversation
             business_id = context.get("business_id", "default")
             user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
+            workflow_id = node.workflow_id
+            current_execution_id = context.get("execution_id")
             
             # Determine if this email is an agent alert (static address) rather than customer response
             config_to = config.get("to")
@@ -827,7 +830,7 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                 if not cust_email or config_to.lower().strip() != cust_email.lower().strip():
                     is_agent_alert = True
                     
-            if is_agent_alert and not await should_notify_agent(business_id, user_id):
+            if is_agent_alert and not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id):
                 logger.info(f"[WorkflowEngine] Skipping agent email alert to {to_email} (throttled)")
                 return {"action_result": "skipped", "reason": "notification_throttled"}
             
@@ -862,7 +865,9 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
             # Throttling to prevent spamming the agent on every message in the same conversation
             business_id = context.get("business_id", "default")
             user_id = context.get("trigger", {}).get("user_id") or context.get("trigger", {}).get("from_number")
-            if not await should_notify_agent(business_id, user_id):
+            workflow_id = node.workflow_id
+            current_execution_id = context.get("execution_id")
+            if not await should_notify_agent(business_id, user_id, workflow_id, current_execution_id):
                 logger.info(f"[WorkflowEngine] Skipping agent WhatsApp alert to {config.get('to_number')} (throttled)")
                 return {"action_result": "skipped", "reason": "notification_throttled"}
             

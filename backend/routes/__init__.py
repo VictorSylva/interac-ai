@@ -10,5 +10,6 @@ from . import entity_routes
 from . import observation_routes
 from . import module_routes
 from . import copilot_fallback_routes
+from . import entitlement_routes
 
 

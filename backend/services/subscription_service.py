@@ -12,8 +12,8 @@ async def check_access(business_id: str, required_tokens: int = 0) -> dict:
     """
     GLOBAL ENFORCEMENT LAYER
     Checks access in mandatory order:
-    1. Active Subscription
-    2. Conversation Limits
+    1. Active Commercial / Tenant Status
+    2. Custom Conversation Allowance & Overrides
     3. Token Balance
     
     Returns: {"allowed": bool, "reason": str, "code": str}
@@ -22,62 +22,50 @@ async def check_access(business_id: str, required_tokens: int = 0) -> dict:
         return {"allowed": False, "reason": "Missing business ID", "code": "MISSING_ID"}
 
     # --- SPECIAL OVERRIDE: interacai.int@gmail.com ---
-    # This account has lifetime Enterprise access and bypasses all checks.
-    if business_id == "interacai.int@gmail.com":
+    if business_id in ["interacai.int@gmail.com", "0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"]:
         return {"allowed": True, "reason": "Enterprise Override Access", "code": "OK"}
+
+    from services.entitlement_service import entitlement_service
+    from services.token_service import token_service
 
     async with AsyncSessionLocal() as session:
         try:
-            # 1. Verify Active Subscription
-            stmt = select(BusinessSubscription, SubscriptionPlan).join(
-                SubscriptionPlan, BusinessSubscription.plan_id == SubscriptionPlan.id
-            ).where(BusinessSubscription.business_id == business_id)
-            
+            # 1. Verify Business Existence & Active Status
+            stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == business_id)
             result = await session.execute(stmt)
-            row = result.first()
+            sub = result.scalar_one_or_none()
             
-            if not row:
-                logger.warning(f"[Access] Blocked: No subscription for {business_id}")
-                return {"allowed": False, "reason": "No active subscription found.", "code": "NO_SUBSCRIPTION"}
-            
-            sub, plan = row
-            
-            # Check for reset (Billing Cycle)
-            await _check_and_reset_usage(session, sub)
+            if sub:
+                # Check for reset (Billing Cycle)
+                await _check_and_reset_usage(session, sub)
 
-            if sub.status != "active":
-                logger.info(f"[Access] Blocked: {business_id} status is {sub.status}")
-                return {"allowed": False, "reason": f"Your subscription is {sub.status}.", "code": "SUBSCRIPTION_INACTIVE"}
+                if sub.status in ["suspended", "canceled"]:
+                    logger.info(f"[Access] Blocked: {business_id} status is {sub.status}")
+                    return {"allowed": False, "reason": f"Your operating account is {sub.status}.", "code": "SUBSCRIPTION_INACTIVE"}
 
-            # Check expiry (Extra safety)
-            grace_period = timedelta(minutes=5)
-            if sub.current_period_end and (sub.current_period_end + grace_period) < datetime.utcnow():
-                logger.info(f"[Access] Blocked: {business_id} subscription expired.")
-                sub.status = "expired"
-                await session.commit()
-                return {"allowed": False, "reason": "Your subscription has expired.", "code": "SUBSCRIPTION_EXPIRED"}
+                # Check expiry (Extra safety)
+                grace_period = timedelta(minutes=5)
+                if sub.current_period_end and (sub.current_period_end + grace_period) < datetime.utcnow():
+                    # Check if pilot or custom contract allows grace
+                    logger.info(f"[Access] Blocked: {business_id} period expired.")
+                    sub.status = "expired"
+                    await session.commit()
+                    return {"allowed": False, "reason": "Your operating period has ended. Contact your InteracAI specialist.", "code": "SUBSCRIPTION_EXPIRED"}
 
-            # 2. Verify Conversation Limit
-            if plan.conversation_limit != -1: # -1 for unlimited
-                if sub.conversations_used >= plan.conversation_limit:
-                    logger.warning(f"[Access] Blocked: {business_id} reached conversation limit ({sub.conversations_used}/{plan.conversation_limit})")
-                    return {"allowed": False, "reason": "Monthly conversation limit reached.", "code": "LIMIT_REACHED"}
+            # 2. Verify Conversation Limit via Entitlement Engine
+            convo_quota = await entitlement_service.check_usage_quota(business_id, "ai.conversations", 1)
+            if not convo_quota["allowed"]:
+                logger.warning(f"[Access] Blocked: {business_id} reached conversation limit")
+                return {"allowed": False, "reason": convo_quota["reason"], "code": "LIMIT_REACHED"}
 
             # 3. Verify Token Balance
-            from services.token_service import token_service
-            wallet = await token_service.get_wallet(business_id)
-            total_balance = (wallet.sub_balance or 0) + (wallet.payg_balance or 0) if wallet else 0
-            
-            # DEBUG TYPE LOGGING
-            logger.info(f"[AccessCheck] BID: {business_id}, Total: {total_balance} ({type(total_balance)}), Required: {required_tokens} ({type(required_tokens)})")
-            
-            if required_tokens is None:
-                logger.error(f"[AccessCheck] required_tokens is NONE for BID {business_id}. Defaulting to 0.")
-                required_tokens = 0
-
-            if total_balance < required_tokens:
-                logger.warning(f"[Access] Blocked: {business_id} insufficient tokens (Has {total_balance}, Need {required_tokens})")
-                return {"allowed": False, "reason": "Insufficient token balance.", "code": "INSUFFICIENT_TOKENS"}
+            if required_tokens and required_tokens > 0:
+                wallet = await token_service.get_wallet(business_id)
+                total_balance = (wallet.sub_balance or 0) + (wallet.payg_balance or 0) if wallet else 0
+                
+                if total_balance < required_tokens:
+                    logger.warning(f"[Access] Blocked: {business_id} insufficient tokens (Has {total_balance}, Need {required_tokens})")
+                    return {"allowed": False, "reason": "Insufficient AI tokens. Please request an allowance top-up.", "code": "INSUFFICIENT_TOKENS"}
 
             return {"allowed": True, "reason": "Access granted", "code": "OK"}
 

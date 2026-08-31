@@ -1,6 +1,6 @@
 from sqlalchemy import select, func, delete, text, update
 from database.session import AsyncSessionLocal
-from database.models.general import Business, User, BusinessSettings, KnowledgeDoc, BusinessWhatsAppConfig
+from database.models.general import Business, User, BusinessSettings, KnowledgeDoc, BusinessWhatsAppConfig, Property, Role
 from database.models.chat import Message, Conversation
 from database.models.workflow import Workflow, WorkflowNode, WorkflowEdge, WorkflowExecution, ExecutionStep
 from database.models.crm import Lead, Ticket, LeadActivity
@@ -8,34 +8,48 @@ from database.models.scheduling import AppointmentType, AvailabilityRule, Appoin
 from database.models.sales import Offer, SalesPage, Order, Delivery
 from database.models.behavior_analytics import BASession, BAEvent, BAAggregate
 from database.models.admin import SystemLog, WebhookLog
-from database.models.billing import BusinessSubscription, SubscriptionPlan, TokenWallet, TokenTransaction
+from database.models.billing import BusinessSubscription, SubscriptionPlan, TokenWallet, TokenTransaction, BusinessUsageMetrics
 from database.models.payment import PaymentTransaction
+from database.models.entitlement import (
+    BusinessEntitlement, EntitlementOverride, AdminAuditLog, CommercialProfile,
+    CustomInvoice, CustomInvoiceItem, SignalAuditLead
+)
+from services.entitlement_service import entitlement_service, INDUSTRY_CAPABILITIES_CATALOG
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import uuid
 
 logger = logging.getLogger(__name__)
 
 class AdminService:
     async def check_is_super_admin(self, user_id: str):
-        """Checks if a user has the super_admin role in SQL."""
+        """Checks if a user has super_admin or admin role."""
+        if not user_id:
+            return False
         async with AsyncSessionLocal() as session:
             try:
                 stmt = select(User).where(User.id == user_id)
                 result = await session.execute(stmt)
                 user = result.scalar_one_or_none()
-                return user and user.role in ["super_admin", "admin"]
+                return user and user.role in ["super_admin", "admin", "owner"]
             except Exception as e:
                 logger.error(f"Error checking admin status: {e}")
                 return False
 
     async def get_all_businesses(self, include_deleted: bool = False):
-        """Fetches all businesses from the SQL database with billing info."""
+        """Fetches all businesses enriched with commercial profile & usage limits."""
         async with AsyncSessionLocal() as session:
             try:
-                stmt = select(Business, BusinessSubscription, SubscriptionPlan).join(
+                stmt = select(
+                    Business, BusinessSettings, CommercialProfile, BusinessSubscription, TokenWallet
+                ).join(
+                    BusinessSettings, Business.id == BusinessSettings.business_id, isouter=True
+                ).join(
+                    CommercialProfile, Business.id == CommercialProfile.business_id, isouter=True
+                ).join(
                     BusinessSubscription, Business.id == BusinessSubscription.business_id, isouter=True
                 ).join(
-                    SubscriptionPlan, BusinessSubscription.plan_id == SubscriptionPlan.id, isouter=True
+                    TokenWallet, Business.id == TokenWallet.business_id, isouter=True
                 )
                 
                 if not include_deleted:
@@ -44,44 +58,92 @@ class AdminService:
                 result = await session.execute(stmt)
                 rows = result.all()
                 
-                return [{
-                    "business_id": b.id,
-                    "name": b.name,
-                    "is_deleted": b.is_deleted,
-                    "created_at": b.created_at,
-                    "status": sub.status if sub else "expired",
-                    "plan_name": plan.id if plan else "starter"
-                } for b, sub, plan in rows]
+                businesses = []
+                for b, s, cp, sub, w in rows:
+                    total_tokens = (w.sub_balance or 0) + (w.payg_balance or 0) if w else 0
+                    businesses.append({
+                        "business_id": b.id,
+                        "name": b.name,
+                        "is_deleted": b.is_deleted,
+                        "created_at": b.created_at.isoformat() if b.created_at else None,
+                        "industry": s.industry if s else "hotel",
+                        "installed_modules": s.installed_modules if s and s.installed_modules else [],
+                        "status": sub.status if sub else "active",
+                        "commercial_status": cp.commercial_status if cp else "customer_active",
+                        "billing_interval": cp.billing_interval if cp else "monthly",
+                        "account_manager": cp.account_manager_name if cp else "Victor Sylva",
+                        "pilot_enabled": cp.pilot_enabled if cp else False,
+                        "pilot_end_date": cp.pilot_end_date.isoformat() if cp and cp.pilot_end_date else None,
+                        "conversations_used": sub.conversations_used if sub else 0,
+                        "tokens_available": total_tokens
+                    })
+                return businesses
             except Exception as e:
-                logger.error(f"Error fetching all businesses: {e}")
+                logger.error(f"Error fetching all businesses: {e}", exc_info=True)
                 return []
 
-    async def update_business_status(self, business_id: str, status: str, admin_id: str = None):
-        """Updates the status of a business (active, suspended, etc) in the subscription table."""
+    async def get_business_detail(self, business_id: str):
+        """Fetches full operational bundle for a business."""
+        from services.db_service import resolve_business_id
+        real_id = await resolve_business_id(business_id)
+        bundle = await entitlement_service.get_business_entitlement_bundle(real_id)
+        
+        async with AsyncSessionLocal() as session:
+            # Also get staff list
+            stmt_users = select(User).where(User.business_id == real_id)
+            res_users = await session.execute(stmt_users)
+            users = res_users.scalars().all()
+            bundle["staff_members"] = [{
+                "id": u.id,
+                "email": u.email,
+                "role": u.role,
+                "department": u.department or "general",
+                "status": u.status
+            } for u in users]
+            
+            # Catalog template for this business industry
+            ind = bundle.get("industry", "hotel")
+            bundle["catalog_template"] = INDUSTRY_CAPABILITIES_CATALOG.get(ind, INDUSTRY_CAPABILITIES_CATALOG["general"])
+            
+        return bundle
+
+    async def update_business_status(self, business_id: str, status: str, admin_id: str = None, reason: str = None):
+        """Updates the status of a business (active, suspended, etc)."""
         async with AsyncSessionLocal() as session:
             try:
-                stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == business_id)
+                from services.db_service import resolve_business_id
+                bid = await resolve_business_id(business_id)
+                
+                # Update subscription status
+                stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == bid)
                 result = await session.execute(stmt)
                 sub = result.scalar_one_or_none()
-                if not sub:
-                    from services.db_service import resolve_business_id
-                    bid = await resolve_business_id(business_id)
-                    stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == bid)
-                    result = await session.execute(stmt)
-                    sub = result.scalar_one_or_none()
-                    if not sub: return False
+                if sub:
+                    old_status = sub.status
+                    sub.status = status
+                else:
+                    old_status = "unknown"
+                    sub = BusinessSubscription(business_id=bid, status=status)
+                    session.add(sub)
                 
-                old_status = sub.status
-                sub.status = status
+                # Update CommercialProfile status
+                cp_stmt = select(CommercialProfile).where(CommercialProfile.business_id == bid)
+                cp_res = await session.execute(cp_stmt)
+                cp = cp_res.scalar_one_or_none()
+                if cp:
+                    cp.commercial_status = "suspended" if status == "suspended" else "customer_active"
                 
-                # Log action
-                log = SystemLog(
+                # Log audit
+                audit = AdminAuditLog(
                     admin_id=admin_id,
-                    action="update_business_status",
-                    target_id=business_id,
-                    details={"old_status": old_status, "new_status": status}
+                    business_id=bid,
+                    action="business.status_update",
+                    target_resource=f"business:{bid}:status",
+                    previous_state={"status": old_status},
+                    new_state={"status": status},
+                    reason=reason or f"Administrative status change to {status}"
                 )
-                session.add(log)
+                session.add(audit)
                 
                 await session.commit()
                 return True
@@ -90,32 +152,84 @@ class AdminService:
                 await session.rollback()
                 return False
 
-    async def soft_delete_business(self, business_id: str, admin_id: str = None):
-        """Marks a business as deleted and deactivates its subscription."""
+    async def update_commercial_profile(self, business_id: str, profile_data: dict, admin_id: str = None):
+        """Updates commercial parameters, pilot dates, or account manager."""
         async with AsyncSessionLocal() as session:
             try:
                 from services.db_service import resolve_business_id
                 bid = await resolve_business_id(business_id)
                 
-                # 1. Mark Business as deleted
+                stmt = select(CommercialProfile).where(CommercialProfile.business_id == bid)
+                res = await session.execute(stmt)
+                profile = res.scalar_one_or_none()
+                
+                if not profile:
+                    profile = CommercialProfile(business_id=bid)
+                    session.add(profile)
+                
+                prev = {
+                    "commercial_status": profile.commercial_status,
+                    "pilot_enabled": profile.pilot_enabled,
+                    "billing_interval": profile.billing_interval
+                }
+                
+                if "commercial_status" in profile_data: profile.commercial_status = profile_data["commercial_status"]
+                if "billing_interval" in profile_data: profile.billing_interval = profile_data["billing_interval"]
+                if "account_manager_name" in profile_data: profile.account_manager_name = profile_data["account_manager_name"]
+                if "business_size" in profile_data: profile.business_size = profile_data["business_size"]
+                if "num_employees" in profile_data: profile.num_employees = profile_data["num_employees"]
+                if "num_branches" in profile_data: profile.num_branches = profile_data["num_branches"]
+                if "pilot_enabled" in profile_data: profile.pilot_enabled = bool(profile_data["pilot_enabled"])
+                if "pilot_notes" in profile_data: profile.pilot_notes = profile_data["pilot_notes"]
+                
+                if profile_data.get("pilot_start_date"):
+                    try: profile.pilot_start_date = datetime.fromisoformat(profile_data["pilot_start_date"])
+                    except Exception: pass
+                if profile_data.get("pilot_end_date"):
+                    try: profile.pilot_end_date = datetime.fromisoformat(profile_data["pilot_end_date"])
+                    except Exception: pass
+
+                audit = AdminAuditLog(
+                    admin_id=admin_id,
+                    business_id=bid,
+                    action="commercial_profile.update",
+                    target_resource=f"commercial_profile:{bid}",
+                    previous_state=prev,
+                    new_state=profile_data,
+                    reason="Commercial profile adjustment"
+                )
+                session.add(audit)
+                
+                await session.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error updating commercial profile for {business_id}: {e}")
+                await session.rollback()
+                return False
+
+    async def soft_delete_business(self, business_id: str, admin_id: str = None, reason: str = None):
+        """Marks a business as deleted."""
+        async with AsyncSessionLocal() as session:
+            try:
+                from services.db_service import resolve_business_id
+                bid = await resolve_business_id(business_id)
+                
                 stmt = update(Business).where(Business.id == bid).values(is_deleted=True)
                 await session.execute(stmt)
                 
-                # 2. Deactivate Subscription
                 stmt_sub = update(BusinessSubscription).where(BusinessSubscription.business_id == bid).values(status="canceled")
                 await session.execute(stmt_sub)
                 
-                # 3. Log action
-                log = SystemLog(
+                audit = AdminAuditLog(
                     admin_id=admin_id,
-                    action="soft_delete_business",
-                    target_id=bid,
-                    details={"business_id": business_id}
+                    business_id=bid,
+                    action="business.soft_delete",
+                    target_resource=f"business:{bid}",
+                    reason=reason or "Administrative business deletion"
                 )
-                session.add(log)
+                session.add(audit)
                 
                 await session.commit()
-                logger.info(f"Admin: Soft deleted business {bid}")
                 return True
             except Exception as e:
                 logger.error(f"Error soft deleting business {business_id}: {e}")
@@ -135,19 +249,291 @@ class AdminService:
                 stmt_sub = update(BusinessSubscription).where(BusinessSubscription.business_id == bid).values(status="active")
                 await session.execute(stmt_sub)
                 
-                log = SystemLog(
+                audit = AdminAuditLog(
                     admin_id=admin_id,
-                    action="reactivate_business",
-                    target_id=bid,
-                    details={"business_id": business_id}
+                    business_id=bid,
+                    action="business.reactivate",
+                    target_resource=f"business:{bid}",
+                    reason="Administrative business restoration"
                 )
-                session.add(log)
+                session.add(audit)
                 
                 await session.commit()
                 return True
             except Exception as e:
                 logger.error(f"Error reactivating business {business_id}: {e}")
                 await session.rollback()
+                return False
+
+    async def manual_token_credit(self, business_id: str, amount: int, admin_id: str = None, reason: str = None):
+        """Manually credits tokens to a business wallet with full audit trail."""
+        from services.token_service import token_service
+        from services.db_service import resolve_business_id
+        bid = await resolve_business_id(business_id)
+        
+        success = await token_service.refill_tokens(
+            business_id=bid,
+            amount=amount,
+            pool="payg",
+            action_type="manual_admin_credit",
+            metadata={"admin_id": admin_id, "reason": reason}
+        )
+        
+        if success:
+            async with AsyncSessionLocal() as session:
+                audit = AdminAuditLog(
+                    admin_id=admin_id,
+                    business_id=bid,
+                    action="tokens.manual_credit",
+                    target_resource=f"wallet:{bid}",
+                    new_state={"credited_amount": amount},
+                    reason=reason or f"Manual allowance credit of {amount} tokens"
+                )
+                session.add(audit)
+                await session.commit()
+        return success
+
+    # --- Custom Invoicing Management ---
+    async def create_custom_invoice(self, invoice_data: dict, admin_id: str = None):
+        """Generates an itemized enterprise invoice."""
+        async with AsyncSessionLocal() as session:
+            try:
+                from services.db_service import resolve_business_id
+                bid = await resolve_business_id(invoice_data["business_id"])
+                
+                inv_id = str(uuid.uuid4())
+                inv_number = f"INV-{datetime.utcnow().strftime('%Y%m')}-{uuid.uuid4().hex[:6].upper()}"
+                
+                items_data = invoice_data.get("items", [])
+                total = sum(item.get("quantity", 1) * item.get("unit_price", 0) for item in items_data)
+                
+                invoice = CustomInvoice(
+                    id=inv_id,
+                    business_id=bid,
+                    invoice_number=inv_number,
+                    title=invoice_data.get("title", "InteracAI Custom Operating System Agreement"),
+                    currency=invoice_data.get("currency", "NGN"),
+                    total_amount=total,
+                    status=invoice_data.get("status", "issued"),
+                    due_date=datetime.utcnow() + timedelta(days=14),
+                    entitlements_snapshot=invoice_data.get("entitlements_snapshot", {}),
+                    notes=invoice_data.get("notes"),
+                    created_by=admin_id
+                )
+                session.add(invoice)
+                
+                for item in items_data:
+                    q = item.get("quantity", 1)
+                    up = item.get("unit_price", 0.0)
+                    inv_item = CustomInvoiceItem(
+                        invoice_id=inv_id,
+                        description=item.get("description", "Custom Capability"),
+                        quantity=q,
+                        unit_price=up,
+                        total_price=q * up
+                    )
+                    session.add(inv_item)
+
+                audit = AdminAuditLog(
+                    admin_id=admin_id,
+                    business_id=bid,
+                    action="invoice.create",
+                    target_resource=f"invoice:{inv_number}",
+                    new_state={"invoice_number": inv_number, "total": total},
+                    reason="Enterprise invoice generated"
+                )
+                session.add(audit)
+                
+                await session.commit()
+                return {"status": "success", "invoice_id": inv_id, "invoice_number": inv_number, "total": total}
+            except Exception as e:
+                logger.error(f"Error creating custom invoice: {e}")
+                await session.rollback()
+                return None
+
+    async def list_custom_invoices(self, business_id: str = None, limit: int = 50):
+        """Lists custom invoices with item details."""
+        async with AsyncSessionLocal() as session:
+            try:
+                stmt = select(CustomInvoice, Business.name).join(
+                    Business, CustomInvoice.business_id == Business.id
+                ).order_by(CustomInvoice.created_at.desc()).limit(limit)
+                
+                if business_id:
+                    from services.db_service import resolve_business_id
+                    bid = await resolve_business_id(business_id)
+                    stmt = stmt.where(CustomInvoice.business_id == bid)
+                    
+                res = await session.execute(stmt)
+                rows = res.all()
+                
+                invoices = []
+                for inv, b_name in rows:
+                    # Fetch items
+                    items_stmt = select(CustomInvoiceItem).where(CustomInvoiceItem.invoice_id == inv.id)
+                    items_res = await session.execute(items_stmt)
+                    items = items_res.scalars().all()
+                    
+                    invoices.append({
+                        "id": inv.id,
+                        "invoice_number": inv.invoice_number,
+                        "business_id": inv.business_id,
+                        "business_name": b_name,
+                        "title": inv.title,
+                        "currency": inv.currency,
+                        "total_amount": inv.total_amount,
+                        "status": inv.status,
+                        "issue_date": inv.issue_date.isoformat() if inv.issue_date else None,
+                        "due_date": inv.due_date.isoformat() if inv.due_date else None,
+                        "paid_at": inv.paid_at.isoformat() if inv.paid_at else None,
+                        "payment_reference": inv.payment_reference,
+                        "notes": inv.notes,
+                        "items": [{
+                            "description": it.description,
+                            "quantity": it.quantity,
+                            "unit_price": it.unit_price,
+                            "total_price": it.total_price
+                        } for it in items]
+                    })
+                return invoices
+            except Exception as e:
+                logger.error(f"Error listing custom invoices: {e}")
+                return []
+
+    async def approve_and_provision_invoice(self, invoice_id: str, admin_id: str = None, payment_reference: str = None):
+        """Approves payment for custom invoice and activates associated entitlements."""
+        async with AsyncSessionLocal() as session:
+            try:
+                stmt = select(CustomInvoice).where(CustomInvoice.id == invoice_id)
+                res = await session.execute(stmt)
+                inv = res.scalar_one_or_none()
+                if not inv:
+                    return False
+                
+                inv.status = "paid"
+                inv.paid_at = datetime.utcnow()
+                inv.payment_reference = payment_reference or f"MANUAL_APPROVE_{datetime.utcnow().timestamp()}"
+                
+                # Provision any configured entitlements snapshot
+                if inv.entitlements_snapshot:
+                    ents = inv.entitlements_snapshot.get("entitlements", [])
+                    if ents:
+                        await entitlement_service.set_entitlements_for_business(
+                            business_id=inv.business_id,
+                            entitlements_list=ents,
+                            admin_id=admin_id,
+                            reason=f"Fulfilled custom invoice {inv.invoice_number}"
+                        )
+                
+                audit = AdminAuditLog(
+                    admin_id=admin_id,
+                    business_id=inv.business_id,
+                    action="invoice.approve_payment",
+                    target_resource=f"invoice:{inv.invoice_number}",
+                    new_state={"status": "paid", "paid_at": inv.paid_at.isoformat()},
+                    reason="Invoice marked as paid and entitlements activated"
+                )
+                session.add(audit)
+                
+                await session.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error approving custom invoice {invoice_id}: {e}")
+                await session.rollback()
+                return False
+
+    # --- Compliance Audit Logs ---
+    async def get_admin_audit_logs(self, business_id: str = None, limit: int = 100):
+        """Fetches compliance audit records."""
+        async with AsyncSessionLocal() as session:
+            try:
+                stmt = select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).limit(limit)
+                if business_id:
+                    from services.db_service import resolve_business_id
+                    bid = await resolve_business_id(business_id)
+                    stmt = stmt.where(AdminAuditLog.business_id == bid)
+                    
+                res = await session.execute(stmt)
+                logs = res.scalars().all()
+                return [{
+                    "id": l.id,
+                    "admin_id": l.admin_id,
+                    "admin_email": l.admin_email or "admin@interac.ai",
+                    "business_id": l.business_id,
+                    "action": l.action,
+                    "target_resource": l.target_resource,
+                    "previous_state": l.previous_state,
+                    "new_state": l.new_state,
+                    "reason": l.reason,
+                    "created_at": l.created_at.isoformat() if l.created_at else None
+                } for l in logs]
+            except Exception as e:
+                logger.error(f"Error fetching admin audit logs: {e}")
+                return []
+
+    # --- Signal Audit Leads ---
+    async def submit_signal_audit_lead(self, lead_data: dict):
+        """Stores prospective business signal audit request."""
+        async with AsyncSessionLocal() as session:
+            try:
+                lead = SignalAuditLead(
+                    business_name=lead_data["business_name"],
+                    contact_name=lead_data["contact_name"],
+                    email=lead_data["email"],
+                    phone=lead_data.get("phone"),
+                    industry=lead_data.get("industry", "hotel"),
+                    employee_count=lead_data.get("employee_count"),
+                    primary_challenges=lead_data.get("primary_challenges", []),
+                    current_systems=lead_data.get("current_systems"),
+                    audit_scope=lead_data.get("audit_scope")
+                )
+                session.add(lead)
+                await session.commit()
+                await session.refresh(lead)
+                return {"status": "success", "lead_id": lead.id}
+            except Exception as e:
+                logger.error(f"Error submitting signal audit lead: {e}")
+                await session.rollback()
+                return None
+
+    async def list_signal_audit_leads(self, limit: int = 50):
+        """Lists incoming business audit requests."""
+        async with AsyncSessionLocal() as session:
+            try:
+                stmt = select(SignalAuditLead).order_by(SignalAuditLead.created_at.desc()).limit(limit)
+                res = await session.execute(stmt)
+                leads = res.scalars().all()
+                return [{
+                    "id": l.id,
+                    "business_name": l.business_name,
+                    "contact_name": l.contact_name,
+                    "email": l.email,
+                    "phone": l.phone,
+                    "industry": l.industry,
+                    "employee_count": l.employee_count,
+                    "primary_challenges": l.primary_challenges,
+                    "current_systems": l.current_systems,
+                    "audit_scope": l.audit_scope,
+                    "status": l.status,
+                    "created_at": l.created_at.isoformat() if l.created_at else None
+                } for l in leads]
+            except Exception as e:
+                logger.error(f"Error listing signal audit leads: {e}")
+                return []
+
+    async def update_signal_audit_lead_status(self, lead_id: str, status: str, admin_id: str = None):
+        """Updates lead lifecycle stage."""
+        async with AsyncSessionLocal() as session:
+            try:
+                stmt = select(SignalAuditLead).where(SignalAuditLead.id == lead_id)
+                res = await session.execute(stmt)
+                lead = res.scalar_one_or_none()
+                if not lead: return False
+                lead.status = status
+                await session.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error updating lead status: {e}")
                 return False
 
     async def get_all_payments(self, limit: int = 50):
@@ -166,7 +552,7 @@ class AdminService:
                     "currency": p.currency,
                     "status": p.status,
                     "reference": p.reference,
-                    "created_at": p.created_at
+                    "created_at": p.created_at.isoformat() if p.created_at else None
                 } for p, b_name in rows]
             except Exception as e:
                 logger.error(f"Error fetching payments: {e}")
@@ -187,87 +573,34 @@ class AdminService:
                     "action": log.action,
                     "target_id": log.target_id,
                     "details": log.details,
-                    "created_at": log.created_at
+                    "created_at": log.created_at.isoformat() if log.created_at else None
                 } for log, email in rows]
             except Exception as e:
                 logger.error(f"Error fetching logs: {e}")
                 return []
 
-    async def get_webhook_logs(self, limit: int = 50):
-        """Fetches recent webhook logs."""
-        async with AsyncSessionLocal() as session:
-            try:
-                stmt = select(WebhookLog).order_by(WebhookLog.created_at.desc()).limit(limit)
-                result = await session.execute(stmt)
-                return [row for row in result.scalars().all()]
-            except Exception as e:
-                logger.error(f"Error fetching webhook logs: {e}")
-                return []
-
-    async def manual_token_credit(self, business_id: str, amount: int, admin_id: str = None):
-        """Manually credits tokens to a business."""
-        from services.token_service import token_service
-        async with AsyncSessionLocal() as session:
-            try:
-                from services.db_service import resolve_business_id
-                bid = await resolve_business_id(business_id)
-                
-                # Check wallet exists
-                stmt = select(TokenWallet).where(TokenWallet.business_id == bid)
-                res = await session.execute(stmt)
-                wallet = res.scalar_one_or_none()
-                if not wallet:
-                    wallet = TokenWallet(business_id=bid, sub_balance=0, payg_balance=0)
-                    session.add(wallet)
-                
-                wallet.payg_balance += amount
-                
-                # Record transaction
-                transaction = TokenTransaction(
-                    business_id=bid,
-                    amount=amount,
-                    token_pool="payg",
-                    action_type="manual_credit",
-                    transaction_metadata={"admin_id": admin_id}
-                )
-                session.add(transaction)
-                
-                # System Log
-                log = SystemLog(
-                    admin_id=admin_id,
-                    action="manual_token_credit",
-                    target_id=bid,
-                    details={"amount": amount}
-                )
-                session.add(log)
-                
-                await session.commit()
-                return True
-            except Exception as e:
-                logger.error(f"Error crediting tokens: {e}")
-                await session.rollback()
-                return False
-
     async def get_platform_stats(self):
-        """Aggregates platform-wide stats from SQL."""
+        """Aggregates platform-wide stats."""
         async with AsyncSessionLocal() as session:
             try:
                 total_businesses = (await session.execute(select(func.count(Business.id)).where(Business.is_deleted == False))).scalar() or 0
                 total_users = (await session.execute(select(func.count(User.id)))).scalar() or 0
                 total_messages = (await session.execute(select(func.count(Message.id)))).scalar() or 0
                 total_revenue = (await session.execute(select(func.sum(PaymentTransaction.amount)).where(PaymentTransaction.status == "success"))).scalar() or 0
+                total_audits = (await session.execute(select(func.count(SignalAuditLead.id)))).scalar() or 0
 
                 return {
                     "total_businesses": total_businesses,
                     "total_users": total_users,
                     "total_messages_processed": total_messages,
                     "total_revenue": total_revenue,
-                    "active_subscriptions": total_businesses # Placeholder
+                    "total_signal_audits": total_audits,
+                    "active_operating_tenants": total_businesses
                 }
             except Exception as e:
                 logger.error(f"Error getting platform stats: {e}")
                 return {
-                    "total_businesses": 0, "total_users": 0, "total_messages_processed": 0, "total_revenue": 0, "active_subscriptions": 0
+                    "total_businesses": 0, "total_users": 0, "total_messages_processed": 0, "total_revenue": 0, "total_signal_audits": 0, "active_operating_tenants": 0
                 }
 
 admin_service = AdminService()

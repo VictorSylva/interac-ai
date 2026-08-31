@@ -1,22 +1,23 @@
 """
-InteracAI SaaS Tenant Provisioning Pipeline.
-Handles atomic creation, subscription setup, module installation, dynamic role setup,
-default workflow cloning, and sample data seeding for new tenants.
+InteracAI SaaS & Enterprise Tenant Provisioning Pipeline.
+Handles audit-first business onboarding, custom industry capabilities,
+entitlement seeding, commercial profile initialization, and dynamic role setup.
 """
 
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from database.models.general import Business, BusinessSettings, Role, User
 from database.models.billing import BusinessSubscription, TokenWallet
+from database.models.entitlement import BusinessEntitlement, CommercialProfile, AdminAuditLog
 from database.models.dynamic_entity import EntityType, EntityV2
 from database.models.observation import ObservationV2
-from database.models.workflow import Workflow
 from services.module_registry import module_registry
 from services.workflow_engine import workflow_engine
+from services.entitlement_service import entitlement_service
 from create_booking_workflow import get_booking_workflow_payload
 
 logger = logging.getLogger(__name__)
@@ -38,65 +39,80 @@ INDUSTRY_TO_MODULE_MAP = {
     "bible_translation": "module_bible_translation"
 }
 
-# Plan token allocations
-PLAN_TOKEN_ALLOCATIONS = {
-    "starter": 250000,
-    "growth": 1000000,
-    "pro": 5000000,
-    "enterprise": 100000000
-}
-
 async def provision_tenant(
     db_session,
     email: str,
     password_hash: str,
     business_name: str,
     industry: str,
-    business_size: Optional[str] = "Small",
-    country: Optional[str] = "United States",
-    subscription_plan: Optional[str] = "starter"
+    business_size: Optional[str] = "Medium",
+    country: Optional[str] = "Nigeria",
+    commercial_status: Optional[str] = "customer_active",
+    billing_interval: Optional[str] = "monthly",
+    account_manager_name: Optional[str] = "Victor Sylva",
+    pilot_enabled: bool = False,
+    pilot_days: int = 30,
+    custom_limits: Optional[Dict[str, int]] = None,
+    custom_modules: Optional[List[str]] = None,
+    custom_entitlements: Optional[List[Dict[str, Any]]] = None,
+    initial_tokens: int = 10000000,
+    admin_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Executes the ProvisionTenant pipeline end-to-end.
-    Ties the business creation, modules installation, settings seeding, and sample data.
+    Executes the Audit-First ProvisionTenant pipeline end-to-end.
+    Ties business creation, commercial profiling, custom entitlements, module installation, and role seeding.
     """
     business_id = str(uuid.uuid4())
     user_id = str(uuid.uuid4())
-    industry_clean = (industry or "retail").lower().strip()
-    plan_clean = (subscription_plan or "starter").lower().strip()
+    industry_clean = (industry or "hotel").lower().strip()
 
-    logger.info(f"[PROVISIONING] Starting pipeline for {business_name} ({email}) - Industry: {industry_clean}, Plan: {plan_clean}")
+    logger.info(f"[PROVISIONING] Starting enterprise pipeline for {business_name} ({email}) - Industry: {industry_clean}")
 
     # 1. Create Business Tenant
     new_business = Business(
         id=business_id,
-        name=business_name,
-        industry=industry_clean,
-        subscription_plan=plan_clean,
-        installed_modules=[],
-        enabled_features=["crm", "email", "analytics_basic", "scheduling"]
+        name=business_name
     )
     db_session.add(new_business)
 
-    # 2. Assign Subscription (Set immediately active for frictionless onboarding)
+    # 2. Assign Operating Subscription Status (Internal record)
+    now = datetime.utcnow()
+    pilot_end = now + timedelta(days=pilot_days) if pilot_enabled else None
+    
     new_sub = BusinessSubscription(
         business_id=business_id,
-        plan_id=plan_clean,
+        plan_id="custom_operating_system",
         status="active",
-        billing_cycle_anchor=datetime.utcnow()
+        current_period_start=now,
+        current_period_end=pilot_end if pilot_enabled else (now + timedelta(days=365)),
+        billing_cycle_anchor=now,
+        conversations_used=0
     )
     db_session.add(new_sub)
 
-    # 3. Create Token Wallet
-    token_allocation = PLAN_TOKEN_ALLOCATIONS.get(plan_clean, 250000)
+    # 3. Create Commercial Profile
+    comm_profile = CommercialProfile(
+        business_id=business_id,
+        commercial_status=commercial_status,
+        billing_interval=billing_interval,
+        account_manager_name=account_manager_name,
+        business_size=business_size or "Medium",
+        pilot_enabled=pilot_enabled,
+        pilot_start_date=now if pilot_enabled else None,
+        pilot_end_date=pilot_end,
+        currency="NGN"
+    )
+    db_session.add(comm_profile)
+
+    # 4. Create Token Wallet
     new_wallet = TokenWallet(
         business_id=business_id,
-        sub_balance=token_allocation,
+        sub_balance=initial_tokens,
         payg_balance=0
     )
     db_session.add(new_wallet)
 
-    # 4. Create Owner User Account
+    # 5. Create Owner User Account
     new_user = User(
         id=user_id,
         business_id=business_id,
@@ -108,171 +124,134 @@ async def provision_tenant(
     )
     db_session.add(new_user)
 
-    # 5. Default Settings Profile
+    # 6. Default Settings Profile
+    modules_to_install = custom_modules if custom_modules else [INDUSTRY_TO_MODULE_MAP.get(industry_clean, "module_hotels")]
+    
     settings = BusinessSettings(
         business_id=business_id,
         industry=industry_clean,
-        description=f"Automated SaaS workspace for {business_name} in the {industry_clean} sector.",
+        description=f"InteracAI Custom Operating System for {business_name} in {industry_clean}.",
         tone="professional",
         location=country,
-        departments=["general", "sales", "support", "billing"]
+        departments=["general", "sales", "support", "billing"],
+        installed_modules=modules_to_install
     )
     db_session.add(settings)
 
-    # Flush so related tables (like BusinessSettings) exist before module installation hooks run
+    # 7. Seed Default Capabilities & Entitlements for Industry
+    await entitlement_service.provision_default_entitlements_for_industry(
+        session=db_session,
+        business_id=business_id,
+        industry=industry_clean,
+        custom_limits=custom_limits,
+        admin_id=admin_id
+    )
+
+    # Apply any specific custom entitlements overrides passed during audit intake
+    if custom_entitlements:
+        for cent in custom_entitlements:
+            key = cent.get("key")
+            if key:
+                ent = BusinessEntitlement(
+                    business_id=business_id,
+                    entitlement_key=key,
+                    entitlement_type=cent.get("type", "boolean"),
+                    enabled=cent.get("enabled", True),
+                    numeric_limit=cent.get("limit"),
+                    unit=cent.get("unit"),
+                    source="custom_quote",
+                    created_by=admin_id,
+                    updated_by=admin_id
+                )
+                db_session.add(ent)
+
+    # Flush so related tables exist before module installation hooks run
     await db_session.flush()
 
-    # 6. Install Module
-    module_id = INDUSTRY_TO_MODULE_MAP.get(industry_clean, "module_retail")
-    logger.info(f"[PROVISIONING] Installing module '{module_id}' for '{business_id}'")
-    
-    # Register the installed module directly in the business record
-    new_business.installed_modules = [module_id]
-    settings.installed_modules = [module_id]
+    # 8. Install Selected Industry Modules
+    for mod_id in modules_to_install:
+        module = module_registry.get_module(mod_id)
+        if module:
+            logger.info(f"[PROVISIONING] Installing module '{mod_id}' for '{business_id}'")
+            await module.on_install(business_id, db_session)
+            
+            # Clone Default Departments & Roles from Module Permissions
+            module_departments = set()
+            for perm_spec in module.manifest.permissions:
+                module_departments.add(perm_spec.department.lower())
+                
+                role_code = f"{perm_spec.department}_{perm_spec.role_tier}".lower()
+                role_name = f"{perm_spec.department.capitalize()} {perm_spec.role_tier.capitalize()}"
+                
+                role_permissions = [
+                    f"{industry_clean}.{perm_spec.department}.read",
+                    f"{industry_clean}.{perm_spec.department}.manage"
+                ]
+                new_role = Role(
+                    id=f"role_{uuid.uuid4().hex[:12]}",
+                    business_id=business_id,
+                    name=role_name,
+                    code=role_code,
+                    permissions=role_permissions
+                )
+                db_session.add(new_role)
+            
+            settings.departments = list(set(settings.departments + list(module_departments)))
+            await db_session.flush()
 
-    module = module_registry.get_module(module_id)
-    if module:
-        # Executes dynamic entity types creation inside the module
-        await module.on_install(business_id, db_session)
-        
-        # 7. Clone Default Departments & Roles from Module Permissions
-        module_departments = set()
-        for perm_spec in module.manifest.permissions:
-            module_departments.add(perm_spec.department.lower())
-            
-            # Create dynamic role
-            role_code = f"{perm_spec.department}_{perm_spec.role_tier}".lower()
-            role_name = f"{perm_spec.department.capitalize()} {perm_spec.role_tier.capitalize()}"
-            
-            role_permissions = [
-                f"{industry_clean}.{perm_spec.department}.read",
-                f"{industry_clean}.{perm_spec.department}.manage"
-            ]
-            new_role = Role(
-                id=f"role_{uuid.uuid4().hex[:12]}",
-                business_id=business_id,
-                name=role_name,
-                code=role_code,
-                permissions=role_permissions
+    # 9. Seed Mock Industry Entities (if hotel/hospital/retail/school)
+    stmt_et = select(EntityType).where(EntityType.org_id == business_id)
+    res_et = await db_session.execute(stmt_et)
+    entity_types = res_et.scalars().all()
+    et_map = {et.code: et.id for et in entity_types}
+
+    if "hotel_room" in et_map:
+        rooms_to_seed = [
+            {"label": "Room 101", "type": "Standard King", "status": "OCCUPIED", "floor": "1st Floor"},
+            {"label": "Room 102", "type": "Deluxe Queen", "status": "VACANT", "floor": "1st Floor"},
+            {"label": "Room 201", "type": "Executive Suite", "status": "OCCUPIED", "floor": "2nd Floor"}
+        ]
+        for room in rooms_to_seed:
+            ent = EntityV2(
+                id=f"ent_{uuid.uuid4().hex[:12]}",
+                org_id=business_id,
+                entity_type_id=et_map["hotel_room"],
+                display_label=room["label"],
+                attributes={"status": room["status"], "room_type": room["type"], "floor": room["floor"]},
+                risk_score=0.0
             )
-            db_session.add(new_role)
-        
-        # Merge module-specific departments into settings
-        merged_depts = list(set(settings.departments + list(module_departments)))
-        settings.departments = merged_depts
-        
-        await db_session.flush()
+            db_session.add(ent)
 
-        # 8. Seed Sample Data (Dynamic entities based on newly created schema)
-        stmt_et = select(EntityType).where(EntityType.org_id == business_id)
-        res_et = await db_session.execute(stmt_et)
-        entity_types = res_et.scalars().all()
-        et_map = {et.code: et.id for et in entity_types}
+    if "hotel_guest" in et_map:
+        guests_to_seed = [
+            {"name": "Alice Smith", "vip": "VIP Gold", "phone": "+1 555-0199", "email": "alice@example.com"},
+            {"name": "Bob Johnson", "vip": "Regular", "phone": "+1 555-0188", "email": "bob@example.com"}
+        ]
+        for guest in guests_to_seed:
+            ent = EntityV2(
+                id=f"ent_{uuid.uuid4().hex[:12]}",
+                org_id=business_id,
+                entity_type_id=et_map["hotel_guest"],
+                display_label=guest["name"],
+                attributes={"vip_status": guest["vip"], "phone": guest["phone"], "email": guest["email"], "preferences": "Extra pillows requested."},
+                risk_score=0.0
+            )
+            db_session.add(ent)
 
-        logger.info(f"[PROVISIONING] Seeding mock entities. Entity map: {list(et_map.keys())}")
-        
-        # Hotel Specific Mock Data
-        if "hotel_room" in et_map:
-            rooms_to_seed = [
-                {"label": "Room 101", "type": "Standard King", "status": "OCCUPIED", "floor": "1st Floor"},
-                {"label": "Room 102", "type": "Deluxe Queen", "status": "VACANT", "floor": "1st Floor"},
-                {"label": "Room 201", "type": "Executive Suite", "status": "OCCUPIED", "floor": "2nd Floor"}
-            ]
-            for room in rooms_to_seed:
-                ent = EntityV2(
-                    id=f"ent_{uuid.uuid4().hex[:12]}",
-                    org_id=business_id,
-                    entity_type_id=et_map["hotel_room"],
-                    display_label=room["label"],
-                    attributes={"status": room["status"], "room_type": room["type"], "floor": room["floor"]},
-                    risk_score=0.0
-                )
-                db_session.add(ent)
+    # 10. Observation Rules
+    obs = ObservationV2(
+        id=f"obs_{uuid.uuid4().hex[:16]}",
+        org_id=business_id,
+        source_channel="system",
+        observation_type=f"{industry_clean}_workspace_provisioned",
+        payload={"message": f"Successfully initialized {industry_clean} custom operating platform."},
+        severity="INFO",
+        confidence=1.0,
+        risk_score_impact=0.0
+    )
+    db_session.add(obs)
 
-        if "hotel_guest" in et_map:
-            guests_to_seed = [
-                {"name": "Alice Smith", "vip": "VIP Gold", "phone": "+1 555-0199", "email": "alice@example.com"},
-                {"name": "Bob Johnson", "vip": "Regular", "phone": "+1 555-0188", "email": "bob@example.com"}
-            ]
-            for guest in guests_to_seed:
-                ent = EntityV2(
-                    id=f"ent_{uuid.uuid4().hex[:12]}",
-                    org_id=business_id,
-                    entity_type_id=et_map["hotel_guest"],
-                    display_label=guest["name"],
-                    attributes={"vip_status": guest["vip"], "phone": guest["phone"], "email": guest["email"], "preferences": "Extra pillows requested."},
-                    risk_score=0.0
-                )
-                db_session.add(ent)
-
-        # Hospital Specific Mock Data
-        if "hospital_patient" in et_map:
-            patients_to_seed = [
-                {"name": "John Doe", "age": 45, "gender": "Male", "blood": "O+", "status": "Stable"},
-                {"name": "Jane Smith", "age": 29, "gender": "Female", "blood": "A-", "status": "Observation"}
-            ]
-            for patient in patients_to_seed:
-                ent = EntityV2(
-                    id=f"ent_{uuid.uuid4().hex[:12]}",
-                    org_id=business_id,
-                    entity_type_id=et_map["hospital_patient"],
-                    display_label=patient["name"],
-                    attributes={"age": patient["age"], "gender": patient["gender"], "blood_type": patient["blood"], "status": patient["status"]},
-                    risk_score=0.0
-                )
-                db_session.add(ent)
-
-        # Retail Specific Mock Data
-        if "product" in et_map:
-            products_to_seed = [
-                {"name": "Organic Milk 1L", "price": 3.99, "stock": 45, "sku": "RET-MILK-ORG"},
-                {"name": "Whole Wheat Bread", "price": 2.49, "stock": 18, "sku": "RET-BREAD-WW"},
-                {"name": "Dark Roast Coffee 500g", "price": 12.99, "stock": 80, "sku": "RET-COFFEE-DR"}
-            ]
-            for prod in products_to_seed:
-                ent = EntityV2(
-                    id=f"ent_{uuid.uuid4().hex[:12]}",
-                    org_id=business_id,
-                    entity_type_id=et_map["product"],
-                    display_label=prod["name"],
-                    attributes={"price": prod["price"], "stock": prod["stock"], "sku": prod["sku"], "category": "Grocery"},
-                    risk_score=0.0
-                )
-                db_session.add(ent)
-
-        # School Specific Mock Data
-        if "student_record" in et_map:
-            students_to_seed = [
-                {"name": "Marcus Vance", "grade": "10th Grade", "guardian": "Robert Vance", "gpa": 3.7},
-                {"name": "Emily Carter", "grade": "11th Grade", "guardian": "Sarah Carter", "gpa": 3.9}
-            ]
-            for student in students_to_seed:
-                ent = EntityV2(
-                    id=f"ent_{uuid.uuid4().hex[:12]}",
-                    org_id=business_id,
-                    entity_type_id=et_map["student_record"],
-                    display_label=student["name"],
-                    attributes={"grade_level": student["grade"], "guardian_name": student["guardian"], "gpa": student["gpa"]},
-                    risk_score=0.0
-                )
-                db_session.add(ent)
-
-        # 9. Create Observation Rules / Threat Alerts
-        obs = ObservationV2(
-            id=f"obs_{uuid.uuid4().hex[:16]}",
-            org_id=business_id,
-            source_channel="system",
-            observation_type=f"{industry_clean}_workspace_provisioned",
-            payload={"message": f"Successfully initialized {industry_clean} workspace."},
-            severity="INFO",
-            confidence=1.0,
-            risk_score_impact=0.0
-        )
-        db_session.add(obs)
-    else:
-        logger.warning(f"[PROVISIONING] Module for industry {industry_clean} was not found in registry.")
-
-    # 10. Clone Default Booking Confirmation Workflow
+    # 11. Clone Default Booking Confirmation Workflow
     try:
         payload = get_booking_workflow_payload(business_id)
         await workflow_engine.create_workflow(business_id, payload)
@@ -280,6 +259,24 @@ async def provision_tenant(
     except Exception as e:
         logger.error(f"[PROVISIONING] Failed to clone default workflow: {e}")
 
+    # 12. Record Audit Log for Business Creation
+    audit = AdminAuditLog(
+        admin_id=admin_id,
+        admin_email="system@interac.ai" if not admin_id else "admin@interac.ai",
+        business_id=business_id,
+        action="business.provision",
+        target_resource=f"business:{business_id}",
+        new_state={
+            "name": business_name,
+            "industry": industry_clean,
+            "commercial_status": commercial_status,
+            "pilot_enabled": pilot_enabled,
+            "modules": modules_to_install
+        },
+        reason="Initial business audit provisioning"
+    )
+    db_session.add(audit)
+
     await db_session.commit()
-    logger.info(f"[PROVISIONING] Tenant {business_id} fully provisioned.")
+    logger.info(f"[PROVISIONING] Enterprise tenant {business_id} fully provisioned with custom entitlements.")
     return {"business_id": business_id, "user_id": user_id, "email": email}

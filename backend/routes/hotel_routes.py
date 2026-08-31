@@ -16,7 +16,7 @@ from database.session import get_db
 from database.models.dynamic_entity import EntityType, EntityV2
 from services.observation_service import observation_service
 from services.workflow_engine import workflow_engine
-from services.auth_service import require_permission, get_current_user
+from services.auth_service import require_permission, require_entitlement, require_department, get_current_user
 
 logger = logging.getLogger(__name__)
 

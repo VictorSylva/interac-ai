@@ -36,6 +36,12 @@ class Business(Base):
     token_transactions = relationship("TokenTransaction", back_populates="business")
     usage_metrics = relationship("BusinessUsageMetrics", back_populates="business", uselist=False)
 
+    # Entitlement & Commercial Relationships
+    entitlements = relationship("BusinessEntitlement", back_populates="business", cascade="all, delete-orphan")
+    entitlement_overrides = relationship("EntitlementOverride", back_populates="business", cascade="all, delete-orphan")
+    commercial_profile = relationship("CommercialProfile", back_populates="business", uselist=False, cascade="all, delete-orphan")
+    custom_invoices = relationship("CustomInvoice", back_populates="business", cascade="all, delete-orphan")
+
 class User(Base):
     __tablename__ = "users"
 

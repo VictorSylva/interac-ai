@@ -228,6 +228,76 @@ async def query_copilot(
     stmt_msg = select(Message).order_by(desc(Message.timestamp)).limit(50)
     res_msg = await db.execute(stmt_msg)
     chat_msgs = res_msg.scalars().all()
+
+    # 2.3 Fetch behavioral analytics (pageviews, visitor sessions, navigation paths, bounce rates, etc.)
+    from database.models.behavior_analytics import BASession, BAEvent
+    from sqlalchemy import func
+
+    # Pageview counts grouped by path
+    stmt_pageviews = (
+        select(BAEvent.path, func.count(BAEvent.id))
+        .where(BAEvent.event_type == "pageview")
+        .group_by(BAEvent.path)
+        .order_by(desc(func.count(BAEvent.id)))
+        .limit(15)
+    )
+    res_pageviews = await db.execute(stmt_pageviews)
+    top_pages_list = res_pageviews.all()
+    
+    # Click counts grouped by element text
+    stmt_clicks = (
+        select(BAEvent.element_text, func.count(BAEvent.id))
+        .where(BAEvent.event_type == "click")
+        .group_by(BAEvent.element_text)
+        .order_by(desc(func.count(BAEvent.id)))
+        .limit(15)
+    )
+    res_clicks = await db.execute(stmt_clicks)
+    top_clicks_list = res_clicks.all()
+    
+    # Aggregated totals
+    stmt_summary_pv = select(func.count(BAEvent.id)).where(BAEvent.event_type == "pageview")
+    res_summary_pv = await db.execute(stmt_summary_pv)
+    total_pageviews_count = res_summary_pv.scalar() or 0
+    
+    stmt_summary_sess = select(func.count(BASession.id))
+    res_summary_sess = await db.execute(stmt_summary_sess)
+    total_sessions_count = res_summary_sess.scalar() or 0
+
+    stmt_unique_visitors = select(func.count(func.distinct(BASession.visitor_id)))
+    res_unique_visitors = await db.execute(stmt_unique_visitors)
+    unique_visitors_count = res_unique_visitors.scalar() or 0
+
+    # Calculate Bounce Rate
+    stmt_bounce_sessions = select(func.count(BASession.id)).where(BASession.is_bounce == True)
+    res_bounce_sessions = await db.execute(stmt_bounce_sessions)
+    bounce_sessions_count = res_bounce_sessions.scalar() or 0
+    bounce_rate = (bounce_sessions_count / total_sessions_count * 100) if total_sessions_count > 0 else 0.0
+
+    # Navigation sequences/paths
+    stmt_recent_events = (
+        select(BAEvent.session_id, BAEvent.path)
+        .where(BAEvent.event_type == "pageview")
+        .order_by(BAEvent.session_id, BAEvent.timestamp.asc())
+        .limit(200)
+    )
+    res_recent_events = await db.execute(stmt_recent_events)
+    recent_events_rows = res_recent_events.all()
+    
+    sessions_map = {}
+    for sid, path in recent_events_rows:
+        if sid not in sessions_map:
+            sessions_map[sid] = []
+        if not sessions_map[sid] or sessions_map[sid][-1] != path:
+            sessions_map[sid].append(path)
+            
+    sequences = {}
+    for sid, paths in sessions_map.items():
+        if len(paths) >= 2:
+            for i in range(len(paths) - 1):
+                seq = f"{paths[i]} -> {paths[i+1]}"
+                sequences[seq] = sequences.get(seq, 0) + 1
+    top_sequences = sorted(sequences.items(), key=lambda x: x[1], reverse=True)[:5]
     
     # 3. Build live context
     context_lines = [
@@ -253,6 +323,27 @@ async def query_copilot(
     for m in chat_msgs:
         t_msg = m.timestamp.isoformat() if m.timestamp else "unknown"
         context_lines.append(f"- [{t_msg}] Convo ID: `{m.conversation_id}` | Sender: `{m.sender}` | Message: \"{m.text}\" | Intent: `{m.intent}` | Sentiment: `{m.sentiment}`")
+
+    # 3.1 Website visitor analytics context injection
+    context_lines.append("\n### WEBSITE VISITOR BEHAVIORAL ANALYTICS & PAGE VIEWS")
+    context_lines.append(f"These are the web page view counts, visitor metrics, click interactions, bounce rates, and navigation sequences recorded in the SQLite database:")
+    context_lines.append(f"- Total Page Views (All Time): {total_pageviews_count}")
+    context_lines.append(f"- Total Visitor Sessions (All Time): {total_sessions_count}")
+    context_lines.append(f"- Unique Web Visitors (All Time): {unique_visitors_count}")
+    context_lines.append(f"- Bounce Rate: {bounce_rate:.1f}% ({bounce_sessions_count} bounce sessions out of {total_sessions_count} total sessions)")
+    
+    context_lines.append("\nTop Visited Web Pages / Path Counts:")
+    for path, count in top_pages_list:
+        context_lines.append(f"- Page Path: `{path}` | Total Pageviews: {count}")
+        
+    context_lines.append("\nTop Clicked Web Page Elements / Buttons:")
+    for el_text, count in top_clicks_list:
+        if el_text:
+            context_lines.append(f"- Button/Link Text: \"{el_text}\" | Click Count: {count}")
+            
+    context_lines.append("\nTop Web Journey Sequences / Navigation Paths:")
+    for seq, count in top_sequences:
+        context_lines.append(f"- Transition Flow: `{seq}` | Count: {count}")
         
     prompt = f"""You are the ARGUS OS Copilot, an autonomous AI security and operations analyst.
     

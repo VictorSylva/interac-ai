@@ -10,6 +10,7 @@ import {
   ArrowDownRight
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { API_BASE_URL } from '../../../config';
 
 export default function DashboardModule() {
   const { currentUser } = useAuth();
@@ -28,19 +29,21 @@ export default function DashboardModule() {
   }, []);
 
   const fetchData = async () => {
-    if (!currentUser) return;
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     setLoading(true);
     try {
+      const uid = currentUser?.id || currentUser?.uid || '';
       const [statsRes, logsRes] = await Promise.all([
-        fetch(`${apiUrl}/api/super-admin/stats?user_id=${currentUser.id}`),
-        fetch(`${apiUrl}/api/super-admin/logs/system?limit=4&user_id=${currentUser.id}`)
+        fetch(`${API_BASE_URL}/api/super-admin/stats?user_id=${uid}`),
+        fetch(`${API_BASE_URL}/api/super-admin/logs/system?limit=4&user_id=${uid}`)
       ]);
-      const statsData = await statsRes.json();
-      const logsData = await logsRes.json();
-      
-      setStats(statsData);
-      setActivities(Array.isArray(logsData) ? logsData : []);
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setStats(statsData || {});
+      }
+      if (logsRes.ok) {
+        const logsData = await logsRes.json();
+        setActivities(Array.isArray(logsData) ? logsData : []);
+      }
     } catch (err) {
       console.error("Failed to fetch dashboard data", err);
     } finally {

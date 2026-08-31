@@ -267,7 +267,7 @@ async def startup_event():
     # Auto-create tables for MVP (replaces manually running alembic revision for now)
     from database.session import engine
     from database.base import Base
-    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales
+    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, entitlement
     import asyncio
     
     max_retries = 20
@@ -424,13 +424,15 @@ from routes import (
     observation_routes,
     module_routes,
     hotel_routes,
-    copilot_fallback_routes
+    copilot_fallback_routes,
+    entitlement_routes
 )
 
 app.include_router(config_routes.router)
 app.include_router(whatsapp_router, prefix="/whatsapp")
 app.include_router(token_routes.router, prefix="/api/tokens", tags=["Tokens"])
 app.include_router(subscription_routes.router, prefix="/api/subscriptions", tags=["Subscriptions"])
+app.include_router(entitlement_routes.router)
 app.include_router(email_routes.router, prefix="/api/email", tags=["Email"])
 app.include_router(usage_routes.router, prefix="/api/usage", tags=["Usage"])
 app.include_router(sales_routes.router, prefix="/api/sales", tags=["Sales"])
