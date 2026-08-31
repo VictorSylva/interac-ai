@@ -198,6 +198,7 @@ class UserInvitation(Base):
     role = Column(String, default="agent") # Role code
     department = Column(String, default="general")
     property_id = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
     status = Column(String, default="pending") # pending, accepted, expired
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime)

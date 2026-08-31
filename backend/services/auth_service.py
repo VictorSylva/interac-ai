@@ -288,6 +288,7 @@ async def create_employee_invitation(
     role_code: str,
     department: str,
     property_id: Optional[str] = None,
+    phone: Optional[str] = None,
     expires_in_hours: int = 48
 ) -> UserInvitation:
     # Expire any legacy pending invitations for this email under this business
@@ -311,6 +312,7 @@ async def create_employee_invitation(
         role=role_code,
         department=department,
         property_id=property_id,
+        phone=phone,
         status="pending",
         expires_at=expires_at
     )
@@ -366,6 +368,8 @@ async def accept_employee_invitation(session: Session, token: str, password: str
         existing_user.role = invite.role
         existing_user.department = invite.department
         existing_user.property_id = invite.property_id
+        if invite.phone:
+            existing_user.phone = invite.phone
         existing_user.password_hash = hashed_pwd
         existing_user.status = "active"
         existing_user.email_verified = True
@@ -379,6 +383,7 @@ async def accept_employee_invitation(session: Session, token: str, password: str
             role=invite.role,
             department=invite.department,
             property_id=invite.property_id,
+            phone=invite.phone,
             status="active",
             email_verified=True
         )

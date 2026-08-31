@@ -303,6 +303,7 @@ async def startup_event():
                     "ALTER TABLE users ADD COLUMN {ine} phone VARCHAR",
                     "ALTER TABLE users ADD COLUMN {ine} receive_operational_alerts BOOLEAN DEFAULT TRUE",
                     "ALTER TABLE users ADD COLUMN {ine} notification_preference VARCHAR DEFAULT 'all'",
+                    "ALTER TABLE user_invitations ADD COLUMN {ine} phone VARCHAR",
                     "ALTER TABLE business_settings ADD COLUMN {ine} notification_cooldown_minutes INTEGER DEFAULT 30"
                 ]
                 
@@ -762,6 +763,7 @@ class InviteRequest(BaseModel):
     role: str
     department: str
     property_id: Optional[str] = None
+    phone: Optional[str] = None
 
 @app.post("/api/auth/invite")
 async def invite_employee_endpoint(body: InviteRequest, current_user: dict = Depends(get_current_user)):
@@ -778,7 +780,8 @@ async def invite_employee_endpoint(body: InviteRequest, current_user: dict = Dep
             email=body.email,
             role_code=body.role,
             department=body.department,
-            property_id=body.property_id
+            property_id=body.property_id,
+            phone=body.phone
         )
         return {
             "status": "success",

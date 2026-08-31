@@ -34,6 +34,7 @@ export default function BusinessProfile() {
   const [inviteRole, setInviteRole] = useState("agent");
   const [inviteDept, setInviteDept] = useState("general");
   const [inviteProp, setInviteProp] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
   const [newPropName, setNewPropName] = useState("");
   const [activeSettingsTab, setActiveSettingsTab] = useState("profile");
   const [editingUser, setEditingUser] = useState(null);
@@ -129,12 +130,14 @@ export default function BusinessProfile() {
           email: inviteEmail,
           role: inviteRole,
           department: inviteDept,
-          property_id: inviteProp || null
+          property_id: inviteProp || null,
+          phone: invitePhone || null
         })
       });
       if (res.ok) {
         alert("Employee invitation email sent!");
         setInviteEmail("");
+        setInvitePhone("");
         fetchInvitations();
       } else {
         const err = await res.json();
@@ -215,6 +218,22 @@ export default function BusinessProfile() {
     }
   };
 
+  const getDefaultDeptConfig = (dept) => ({
+    department: dept,
+    display_name: dept.charAt(0).toUpperCase() + dept.slice(1),
+    notification_phone: "",
+    notification_email: "",
+    primary_user_id: "",
+    routing_enabled: true,
+    whatsapp_enabled: true,
+    email_enabled: true,
+    escalation_enabled: false,
+    escalation_timeout_minutes: 30,
+    escalation_user_id: "",
+    escalation_level2_user_id: "",
+    property_id: ""
+  });
+
   const [routingConfigs, setRoutingConfigs] = useState([]);
 
   const fetchRoutingConfigs = async () => {
@@ -235,21 +254,22 @@ export default function BusinessProfile() {
       const idx = prev.findIndex((c) => c.department === dept);
       if (idx !== -1) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], [field]: value };
+        copy[idx] = { ...getDefaultDeptConfig(dept), ...copy[idx], [field]: value };
         return copy;
       } else {
-        return [...prev, { department: dept, [field]: value }];
+        return [...prev, { ...getDefaultDeptConfig(dept), [field]: value }];
       }
     });
   };
 
   const handleSaveRoutingConfig = async (config) => {
     try {
+      const fullConfig = { ...getDefaultDeptConfig(config.department), ...config };
       const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(`${apiUrl}/api/business/routing-configs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config)
+        body: JSON.stringify(fullConfig)
       });
       if (res.ok) {
         fetchRoutingConfigs();
@@ -814,7 +834,7 @@ export default function BusinessProfile() {
             {/* Send Invitation Form */}
             <Section title="Invite New Employee" icon={Users}>
               <form onSubmit={handleSendInvite} className="bg-grey-50 p-6 rounded-2xl border border-grey-light space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Email Address</label>
                     <input
@@ -852,7 +872,17 @@ export default function BusinessProfile() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Assign Branch/Hotel (Optional)</label>
+                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">WhatsApp Phone (Optional)</label>
+                    <input
+                      type="text"
+                      value={invitePhone}
+                      onChange={(e) => setInvitePhone(e.target.value)}
+                      placeholder="+234 813 160 8061"
+                      className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm focus:outline-none focus:border-navy"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Assign Branch (Optional)</label>
                     <select
                       value={inviteProp}
                       onChange={(e) => setInviteProp(e.target.value)}
@@ -935,7 +965,7 @@ export default function BusinessProfile() {
                   <table className="w-full text-left text-sm text-grey-700">
                     <thead>
                       <tr className="bg-grey-50 border-b border-grey-light text-navy font-bold text-xs uppercase tracking-wider">
-                        <th className="p-4">Employee</th>
+                        <th className="p-4">Employee / Alert Phone</th>
                         <th className="p-4">Role / Department</th>
                         <th className="p-4">Status</th>
                         <th className="p-4">Actions</th>
@@ -946,7 +976,15 @@ export default function BusinessProfile() {
                         <tr key={u.id} className="border-b border-grey-light hover:bg-grey-50 transition-colors">
                           <td className="p-4">
                             <div className="font-semibold text-navy">{u.email}</div>
-                            <div className="text-xs text-grey-500">ID: {u.id}</div>
+                            {u.phone ? (
+                              <div className="text-xs text-emerald-700 font-medium flex items-center gap-1 mt-0.5">
+                                📱 {u.phone}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-amber-600 font-medium mt-0.5">
+                                ⚠️ No phone set
+                              </div>
+                            )}
                           </td>
                           <td className="p-4">
                             <div className="capitalize font-medium text-grey-800">{u.role}</div>
@@ -1006,23 +1044,13 @@ export default function BusinessProfile() {
 
               <div className="space-y-6">
                 {form.departments?.map((dept) => {
-                  const config = routingConfigs.find((c) => c.department === dept) || {
-                    department: dept,
-                    display_name: dept.charAt(0).toUpperCase() + dept.slice(1),
-                    notification_phone: "",
-                    notification_email: "",
-                    primary_user_id: "",
-                    routing_enabled: true,
-                    whatsapp_enabled: true,
-                    email_enabled: true,
-                    escalation_enabled: false,
-                    escalation_timeout_minutes: 30,
-                    escalation_user_id: "",
-                    escalation_level2_user_id: "",
-                    property_id: ""
+                  const existingConfig = routingConfigs.find((c) => c.department === dept) || {};
+                  const config = {
+                    ...getDefaultDeptConfig(dept),
+                    ...existingConfig
                   };
 
-                  const isConfigured = config.notification_phone || config.notification_email || config.primary_user_id;
+                  const isConfigured = Boolean(config.notification_phone || config.notification_email || config.primary_user_id);
 
                   return (
                     <div key={dept} className="border border-grey-light rounded-xl p-6 bg-grey-50 space-y-4">
@@ -1036,8 +1064,12 @@ export default function BusinessProfile() {
                         <label className="flex items-center space-x-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={config.routing_enabled}
-                            onChange={(e) => handleSaveRoutingConfig({ ...config, routing_enabled: e.target.checked })}
+                            checked={config.routing_enabled !== false}
+                            onChange={(e) => {
+                              const updated = { ...config, routing_enabled: e.target.checked };
+                              handleUpdateRoutingConfigState(dept, "routing_enabled", e.target.checked);
+                              handleSaveRoutingConfig(updated);
+                            }}
                             className="rounded text-navy border-grey-light focus:ring-navy"
                           />
                           <span className="text-xs font-bold text-navy uppercase">Routing Enabled</span>
@@ -1048,16 +1080,22 @@ export default function BusinessProfile() {
                         {/* Column 1: Channels */}
                         <div className="space-y-4">
                           <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Alert Channels</h3>
-                          <label className="flex items-center space-x-3 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={config.whatsapp_enabled}
-                              onChange={(e) => handleSaveRoutingConfig({ ...config, whatsapp_enabled: e.target.checked })}
-                              className="rounded text-navy border-grey-light focus:ring-navy"
-                            />
-                            <span className="text-sm text-navy">WhatsApp Notification</span>
-                          </label>
-                          {config.whatsapp_enabled && (
+                          
+                          {/* WhatsApp Channel */}
+                          <div className="space-y-1.5">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={config.whatsapp_enabled !== false}
+                                onChange={(e) => {
+                                  const updated = { ...config, whatsapp_enabled: e.target.checked };
+                                  handleUpdateRoutingConfigState(dept, "whatsapp_enabled", e.target.checked);
+                                  handleSaveRoutingConfig(updated);
+                                }}
+                                className="rounded text-navy border-grey-light focus:ring-navy"
+                              />
+                              <span className="text-sm font-medium text-navy">WhatsApp Notification</span>
+                            </label>
                             <input
                               type="text"
                               value={config.notification_phone || ""}
@@ -1066,18 +1104,24 @@ export default function BusinessProfile() {
                               placeholder="e.g. +2348131608061"
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             />
-                          )}
+                            <p className="text-[10px] text-grey-400">Department WhatsApp phone number.</p>
+                          </div>
 
-                          <label className="flex items-center space-x-3 cursor-pointer mt-2">
-                            <input
-                              type="checkbox"
-                              checked={config.email_enabled}
-                              onChange={(e) => handleSaveRoutingConfig({ ...config, email_enabled: e.target.checked })}
-                              className="rounded text-navy border-grey-light focus:ring-navy"
-                            />
-                            <span className="text-sm text-navy">Email Notification</span>
-                          </label>
-                          {config.email_enabled && (
+                          {/* Email Channel */}
+                          <div className="space-y-1.5 pt-2">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={config.email_enabled !== false}
+                                onChange={(e) => {
+                                  const updated = { ...config, email_enabled: e.target.checked };
+                                  handleUpdateRoutingConfigState(dept, "email_enabled", e.target.checked);
+                                  handleSaveRoutingConfig(updated);
+                                }}
+                                className="rounded text-navy border-grey-light focus:ring-navy"
+                              />
+                              <span className="text-sm font-medium text-navy">Email Notification</span>
+                            </label>
                             <input
                               type="email"
                               value={config.notification_email || ""}
@@ -1086,31 +1130,44 @@ export default function BusinessProfile() {
                               placeholder="e.g. sales@company.com"
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             />
-                          )}
+                            <p className="text-[10px] text-grey-400">Department alert email address.</p>
+                          </div>
                         </div>
 
                         {/* Column 2: Assignment */}
                         <div className="space-y-4">
                           <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Primary Assignment</h3>
                           <div>
-                            <label className="block text-xs font-bold text-navy uppercase mb-1">Primary Agent</label>
+                            <label className="block text-xs font-bold text-navy uppercase mb-1">Primary Department Agent</label>
                             <select
                               value={config.primary_user_id || ""}
-                              onChange={(e) => handleSaveRoutingConfig({ ...config, primary_user_id: e.target.value })}
+                              onChange={(e) => {
+                                const updated = { ...config, primary_user_id: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "primary_user_id", e.target.value);
+                                handleSaveRoutingConfig(updated);
+                              }}
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             >
                               <option value="">-- Select Agent --</option>
-                              {users.filter(u => u.department === dept).map((u) => (
-                                <option key={u.id} value={u.id}>{u.email}</option>
+                              {users.filter(u => (u.department || "general") === dept || u.department === "general").map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.email} {u.phone ? `(${u.phone})` : "(No phone set)"}
+                                </option>
                               ))}
                             </select>
+                            <p className="text-[10px] text-grey-400 mt-1">This agent is prioritized for new chats in this department.</p>
                           </div>
                           {properties.length > 0 && (
                             <div>
                               <label className="block text-xs font-bold text-navy uppercase mb-1">Branch / Property Context</label>
                               <select
                                 value={config.property_id || ""}
-                                onChange={(e) => handleSaveRoutingConfig({ ...config, property_id: e.target.value || null })}
+                                onChange={(e) => {
+                                  const val = e.target.value || null;
+                                  const updated = { ...config, property_id: val };
+                                  handleUpdateRoutingConfigState(dept, "property_id", val);
+                                  handleSaveRoutingConfig(updated);
+                                }}
                                 className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                               >
                                 <option value="">-- All Properties --</option>
@@ -1125,24 +1182,28 @@ export default function BusinessProfile() {
                         {/* Column 3: Escalation */}
                         <div className="space-y-4">
                           <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Escalation Path</h3>
-                          <label className="flex items-center space-x-3 cursor-pointer">
+                          <label className="flex items-center space-x-2 cursor-pointer">
                             <input
                               type="checkbox"
-                              checked={config.escalation_enabled}
-                              onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_enabled: e.target.checked })}
+                              checked={Boolean(config.escalation_enabled)}
+                              onChange={(e) => {
+                                const updated = { ...config, escalation_enabled: e.target.checked };
+                                handleUpdateRoutingConfigState(dept, "escalation_enabled", e.target.checked);
+                                handleSaveRoutingConfig(updated);
+                              }}
                               className="rounded text-navy border-grey-light focus:ring-navy"
                             />
-                            <span className="text-sm text-navy">Enable Escalation</span>
+                            <span className="text-sm font-medium text-navy">Enable Auto-Escalation</span>
                           </label>
 
                           {config.escalation_enabled && (
-                            <>
+                            <div className="space-y-3 pt-2">
                               <div>
                                 <label className="block text-xs font-bold text-navy uppercase mb-1">Escalate After (Minutes)</label>
                                 <input
                                   type="number"
                                   value={config.escalation_timeout_minutes || 30}
-                                  onChange={(e) => handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", parseInt(e.target.value))}
+                                  onChange={(e) => handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", parseInt(e.target.value) || 30)}
                                   onBlur={() => handleSaveRoutingConfig(config)}
                                   className="w-full text-sm border border-grey-light rounded bg-white px-3 py-1.5 focus:outline-none focus:border-navy"
                                 />
@@ -1151,7 +1212,11 @@ export default function BusinessProfile() {
                                 <label className="block text-xs font-bold text-navy uppercase mb-1">Level 1 Escalation Manager</label>
                                 <select
                                   value={config.escalation_user_id || ""}
-                                  onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_user_id: e.target.value })}
+                                  onChange={(e) => {
+                                    const updated = { ...config, escalation_user_id: e.target.value };
+                                    handleUpdateRoutingConfigState(dept, "escalation_user_id", e.target.value);
+                                    handleSaveRoutingConfig(updated);
+                                  }}
                                   className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                                 >
                                   <option value="">-- Select Manager --</option>
@@ -1164,7 +1229,11 @@ export default function BusinessProfile() {
                                 <label className="block text-xs font-bold text-navy uppercase mb-1">Level 2 General Manager</label>
                                 <select
                                   value={config.escalation_level2_user_id || ""}
-                                  onChange={(e) => handleSaveRoutingConfig({ ...config, escalation_level2_user_id: e.target.value })}
+                                  onChange={(e) => {
+                                    const updated = { ...config, escalation_level2_user_id: e.target.value };
+                                    handleUpdateRoutingConfigState(dept, "escalation_level2_user_id", e.target.value);
+                                    handleSaveRoutingConfig(updated);
+                                  }}
                                   className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                                 >
                                   <option value="">-- Select General Manager --</option>
@@ -1173,7 +1242,7 @@ export default function BusinessProfile() {
                                   ))}
                                 </select>
                               </div>
-                            </>
+                            </div>
                           )}
                         </div>
                       </div>
