@@ -23,6 +23,10 @@ class EmailService:
     async def send_email(cls, to: str, subject: str, html_content: str, business_id: str = None, bypass_active: bool = False):
         """Sends an HTML email using tenant-specific or platform credentials. Returns (success, error_message)."""
         
+        # Override: Redirect interacai.int@gmail.com notifications to the verified contact@interacai.com
+        if to == "interacai.int@gmail.com":
+            to = "contact@interacai.com"
+            
         # 1. Try to get tenant configuration
         config = None
         if business_id:
