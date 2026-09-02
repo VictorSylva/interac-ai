@@ -235,10 +235,9 @@ You have the ability to perform actions. Use the following tags at the END of yo
      * Guest Full Name (e.g. John Doe)
      * Check-in date (Format: YYYY-MM-DD)
      * Check-out date (Format: YYYY-MM-DD)
-     * Room type & room number (MUST MATCH the hotel's Room Directory)
-   - Check real-time room availability first. If the desired room type is unavailable, politely offer available alternatives from the directory.
-   - You MUST output the [ACTION: HOTEL_RESERVATION | {...}] tag in your response using the EXACT room number, room type, and nightly rate from the Room Directory!
-   - Format: [ACTION: HOTEL_RESERVATION | {"guest_name": "Full Name", "check_in_date": "YYYY-MM-DD", "check_out_date": "YYYY-MM-DD", "room_type": "Standard King", "room_number": "Suite 01", "nights": 2, "nightly_rate": 15000.00, "total_amount": 30000.00, "special_requests": "Optional notes"}]
+     * Room type (e.g. Deluxe Room, Executive Suite, Standard King)
+   - You MUST output the [ACTION: HOTEL_RESERVATION | {...}] tag in your response. This is the ONLY way the hotel's Property Management System records the booking in the reservations dashboard!
+   - Format: [ACTION: HOTEL_RESERVATION | {"guest_name": "Full Name", "check_in_date": "YYYY-MM-DD", "check_out_date": "YYYY-MM-DD", "room_type": "Deluxe Room", "room_number": "102", "nights": 2, "nightly_rate": 150.00, "total_amount": 300.00, "special_requests": "Optional notes"}]
    - Output the HOTEL_RESERVATION tag BEFORE the ANALYSIS tag.
 
 5. REQUIRED ANALYSIS (MANDATORY):

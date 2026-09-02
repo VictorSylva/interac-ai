@@ -251,44 +251,11 @@ async def provision_tenant(
             settings.departments = list(set(settings.departments + list(module_departments)))
             await db_session.flush()
 
-    # 9. Seed Mock Industry Entities (if hotel/hospital/retail/school)
+    # 9. Industry Entities: No mock/dummy entities seeded. Rooms and inventory must be created cleanly by the hotel management.
     stmt_et = select(EntityType).where(EntityType.org_id == business_id)
     res_et = await db_session.execute(stmt_et)
     entity_types = res_et.scalars().all()
     et_map = {et.code: et.id for et in entity_types}
-
-    if "hotel_room" in et_map:
-        rooms_to_seed = [
-            {"label": "Room 101", "type": "Standard King", "status": "OCCUPIED", "floor": "1st Floor"},
-            {"label": "Room 102", "type": "Deluxe Queen", "status": "VACANT", "floor": "1st Floor"},
-            {"label": "Room 201", "type": "Executive Suite", "status": "OCCUPIED", "floor": "2nd Floor"}
-        ]
-        for room in rooms_to_seed:
-            ent = EntityV2(
-                id=f"ent_{uuid.uuid4().hex[:12]}",
-                org_id=business_id,
-                entity_type_id=et_map["hotel_room"],
-                display_label=room["label"],
-                attributes={"status": room["status"], "room_type": room["type"], "floor": room["floor"]},
-                risk_score=0.0
-            )
-            db_session.add(ent)
-
-    if "hotel_guest" in et_map:
-        guests_to_seed = [
-            {"name": "Alice Smith", "vip": "VIP Gold", "phone": "+1 555-0199", "email": "alice@example.com"},
-            {"name": "Bob Johnson", "vip": "Regular", "phone": "+1 555-0188", "email": "bob@example.com"}
-        ]
-        for guest in guests_to_seed:
-            ent = EntityV2(
-                id=f"ent_{uuid.uuid4().hex[:12]}",
-                org_id=business_id,
-                entity_type_id=et_map["hotel_guest"],
-                display_label=guest["name"],
-                attributes={"vip_status": guest["vip"], "phone": guest["phone"], "email": guest["email"], "preferences": "Extra pillows requested."},
-                risk_score=0.0
-            )
-            db_session.add(ent)
 
     # 10. Observation Rules
     obs = ObservationV2(

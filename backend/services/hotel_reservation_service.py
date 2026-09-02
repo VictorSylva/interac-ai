@@ -1,8 +1,7 @@
 """
 Hotel Reservation Service for InteracAI.
-Handles end-to-end ingestion, live room inventory resolution, real-time availability checks,
-guest profile linking, Property Management System (PMS) database persistence,
-and Front Desk alert dispatching with dynamic currency support.
+Handles end-to-end ingestion, room directory synchronization, guest profile linking,
+Property Management System (PMS) database persistence, availability checks, and Front Desk alerts.
 """
 
 import uuid
@@ -18,6 +17,9 @@ from services.workflow_engine import workflow_engine
 
 logger = logging.getLogger(__name__)
 
+# Known dummy/mock room labels that should be filtered out from real hotel operations
+DUMMY_ROOM_LABELS = {"room 101", "room 102", "room 201"}
+
 class HotelReservationService:
 
     @staticmethod
@@ -28,7 +30,6 @@ class HotelReservationService:
             res = await session.execute(stmt)
             et = res.scalar_one_or_none()
         except Exception:
-            # If table is missing in local dev sqlite, auto-create
             from database.base import Base
             from database.session import engine
             async with engine.begin() as conn:
@@ -36,7 +37,6 @@ class HotelReservationService:
             stmt = select(EntityType).where(EntityType.org_id == org_id, EntityType.code == code)
             res = await session.execute(stmt)
             et = res.scalar_one_or_none()
-
         if not et:
             et = EntityType(
                 id=f"et_{uuid.uuid4().hex[:12]}",
@@ -51,13 +51,21 @@ class HotelReservationService:
         return et.id
 
     @classmethod
-    async def get_hotel_inventory_context(cls, business_id: str) -> Optional[str]:
+    async def get_available_rooms_inventory(
+        cls,
+        business_id: str,
+        check_in: Optional[str] = None,
+        check_out: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Queries the hotel's registered rooms and active bookings from the PMS,
-        and generates a real-time room directory and availability context for the AI prompt.
+        Fetches all genuine rooms registered by the hotel management in the rooms directory,
+        excluding dummy data, and calculates date-specific availability.
         """
-        from services.db_service import resolve_business_id, get_business_profile
+        from services.db_service import resolve_business_id
         real_business_id = await resolve_business_id(business_id)
+
+        cin_str = str(check_in)[:10] if check_in else None
+        cout_str = str(check_out)[:10] if check_out else None
 
         async with AsyncSessionLocal() as session:
             try:
@@ -66,96 +74,125 @@ class HotelReservationService:
                     EntityType.org_id == real_business_id,
                     EntityType.code == "hotel_room"
                 )
-                et_res = await session.execute(stmt_et)
-                room_et = et_res.scalar_one_or_none()
-                if not room_et:
-                    return None
+                res_et = await session.execute(stmt_et)
+                et = res_et.scalar_one_or_none()
+                if not et:
+                    return []
 
                 # 2. Fetch all rooms
-                rooms_stmt = select(EntityV2).where(
+                stmt_rooms = select(EntityV2).where(
                     EntityV2.org_id == real_business_id,
-                    EntityV2.entity_type_id == room_et.id
+                    EntityV2.entity_type_id == et.id
                 )
-                rooms_res = await session.execute(rooms_stmt)
-                rooms = rooms_res.scalars().all()
+                res_rooms = await session.execute(stmt_rooms)
+                rooms = res_rooms.scalars().all()
 
-                if not rooms:
-                    return None
-
-                # 3. Check active reservations to determine occupied/reserved rooms
-                res_et_stmt = select(EntityType).where(
+                # 3. Fetch active reservations to verify calendar clashes
+                stmt_res_et = select(EntityType).where(
                     EntityType.org_id == real_business_id,
                     EntityType.code == "hotel_reservation"
                 )
-                res_et = (await session.execute(res_et_stmt)).scalar_one_or_none()
-                booked_rooms = set()
+                res_res_et = await session.execute(stmt_res_et)
+                res_et_obj = res_res_et.scalar_one_or_none()
 
-                if res_et:
-                    now_str = datetime.utcnow().strftime("%Y-%m-%d")
-                    res_stmt = select(EntityV2).where(
+                booked_room_ids = set()
+                if res_et_obj and cin_str and cout_str:
+                    stmt_reservations = select(EntityV2).where(
                         EntityV2.org_id == real_business_id,
-                        EntityV2.entity_type_id == res_et.id
+                        EntityV2.entity_type_id == res_et_obj.id
                     )
-                    active_res = (await session.execute(res_stmt)).scalars().all()
-                    for r in active_res:
+                    res_reservations = await session.execute(stmt_reservations)
+                    all_reservations = res_reservations.scalars().all()
+
+                    for r in all_reservations:
                         attrs = r.attributes or {}
-                        cout = attrs.get("check_out_date", "")
-                        status = attrs.get("status", "")
-                        if status in ("RESERVED", "CHECKED_IN") and cout >= now_str:
-                            booked_rooms.add(str(attrs.get("room_number", "")).strip().lower())
+                        status = attrs.get("status", "RESERVED").upper()
+                        if status in ("CANCELLED", "CHECKED_OUT"):
+                            continue
 
-                # 4. Resolve Currency
-                profile = await get_business_profile(real_business_id)
-                country = str(profile.get("country", "")).lower()
-                profile_currency = str(profile.get("currency", "")).upper()
+                        r_cin = str(attrs.get("check_in_date") or "")[:10]
+                        r_cout = str(attrs.get("check_out_date") or "")[:10]
+                        r_room_id = attrs.get("room_id")
 
-                # Check if any room has Nigerian rate (> 1000) or profile says Nigeria / NGN
-                has_large_rate = any(float((r.attributes or {}).get("nightly_rate") or 0) >= 1000 for r in rooms)
-                if "nigeria" in country or profile_currency == "NGN" or has_large_rate:
-                    currency_sym = "₦"
-                    currency_name = "Naira (NGN)"
-                else:
-                    currency_sym = "$"
-                    currency_name = "USD ($)"
+                        # Overlap: (r_cin < cout_str and r_cout > cin_str)
+                        if r_room_id and r_cin and r_cout:
+                            if r_cin < cout_str and r_cout > cin_str:
+                                booked_room_ids.add(r_room_id)
 
-                # 5. Build Room Directory lines
-                directory_lines = []
+                results = []
                 for room in rooms:
+                    label = (room.display_label or "").strip()
+                    # Filter out dummy/mock seed data
+                    if label.lower() in DUMMY_ROOM_LABELS:
+                        continue
+
                     attrs = room.attributes or {}
-                    r_num = str(room.display_label).strip()
-                    r_type = attrs.get("room_type", "Standard Room")
-                    rate = float(attrs.get("nightly_rate") or 0)
-                    floor = attrs.get("floor", "1")
-                    status = str(attrs.get("status", "VACANT")).upper()
+                    status = attrs.get("status", "VACANT").upper()
+                    if status == "OUT_OF_SERVICE":
+                        continue
 
-                    is_occupied = r_num.lower() in booked_rooms or status in ("OCCUPIED", "MAINTENANCE", "OUT_OF_SERVICE")
-                    avail_str = "OCCUPIED" if is_occupied else "VACANT / AVAILABLE"
+                    is_booked = room.id in booked_room_ids
+                    is_available = (status == "VACANT" and not is_booked)
 
-                    directory_lines.append(
-                        f"• Room \"{r_num}\" (Floor {floor}) | Type: {r_type} | Rate: {currency_sym}{rate:,.2f} per night | Status: {avail_str}"
-                    )
+                    results.append({
+                        "id": room.id,
+                        "room_number": label,
+                        "room_type": attrs.get("room_type", "Standard Room"),
+                        "floor": attrs.get("floor", "1"),
+                        "status": "OCCUPIED" if is_booked else status,
+                        "housekeeping": attrs.get("housekeeping", "Clean"),
+                        "nightly_rate": float(attrs.get("nightly_rate") or 0.0),
+                        "is_available": is_available
+                    })
 
-                directory_text = "\n".join(directory_lines)
+                # Sort by floor and room label
+                results.sort(key=lambda x: (x.get("floor", "1"), x.get("room_number", "")))
+                return results
 
-                return f"""
-*** LIVE HOTEL ROOM DIRECTORY & REAL-TIME AVAILABILITY ***
-Currency: {currency_sym} ({currency_name})
-
-ACTIVE HOTEL ROOM INVENTORY:
-{directory_text}
-
-*** CRITICAL HOTEL RESERVATION & INVENTORY CONSTRAINTS ***
-1. REAL INVENTORY ONLY: You MUST ONLY offer, quote, and reserve rooms that exist in the directory above. NEVER invent room numbers, fictitious room types, or make up prices.
-2. ACCURATE RATES & CURRENCY: Always state the exact nightly rate from the directory using the hotel's currency ({currency_sym}, NEVER use $ unless the directory explicitly uses $).
-3. AVAILABILITY CHECK & ALTERNATIVE RECOMMENDATIONS:
-   - When a guest inquires or asks to book a room, check the availability in the directory above.
-   - If the guest's desired room type is NOT in the directory or is currently OCCUPIED / UNAVAILABLE, explain politely that this type is unavailable, and immediately recommend the available room types and their rates from the directory above (e.g. "We do not have any Deluxe King rooms available at the moment, but we have our Standard King rooms (Suite 01, Suite 02, Suite 03) available at {currency_sym}15,000 per night. Would you like me to reserve one of these for you?").
-4. ROOM ALLOCATION: When confirming a reservation, assign one of the available VACANT rooms from the directory above (e.g. "Suite 01").
-5. ACTION TAG EXECUTION: When the guest agrees and gives their name and dates, output the [ACTION: HOTEL_RESERVATION | {{"guest_name": "...", "check_in_date": "YYYY-MM-DD", "check_out_date": "YYYY-MM-DD", "room_type": "...", "room_number": "...", "nights": N, "nightly_rate": RATE, "total_amount": TOTAL, "special_requests": "..."}}] tag with the exact room_number, room_type, nightly_rate, and calculated total_amount (nightly_rate * nights).
-"""
             except Exception as e:
-                logger.error(f"[HotelReservationService] Error compiling inventory context: {e}")
-                return None
+                logger.error(f"[HotelReservationService] Error querying rooms inventory: {e}", exc_info=True)
+                return []
+
+    @classmethod
+    async def get_rooms_context_for_ai(cls, business_id: str) -> str:
+        """
+        Builds a structured real-time directory of available rooms for injection into the AI prompt.
+        Ensures the AI only offers rooms that actually exist in the hotel directory.
+        """
+        rooms = await cls.get_available_rooms_inventory(business_id)
+        if not rooms:
+            return ""
+
+        lines = [
+            "*** LIVE HOTEL ROOMS DIRECTORY & REAL-TIME AVAILABILITY ***",
+            "The following are the ONLY official rooms registered in this hotel's Directory. You MUST strictly adhere to this list:",
+        ]
+
+        available_count = 0
+        for r in rooms:
+            avail_str = "AVAILABLE / VACANT" if r["is_available"] else f"UNAVAILABLE ({r['status']})"
+            if r["is_available"]:
+                available_count += 1
+            rate_formatted = f"₦{r['nightly_rate']:,.2f}" if r["nightly_rate"] > 500 else f"${r['nightly_rate']:,.2f}"
+            lines.append(
+                f"• Room '{r['room_number']}' | Category: {r['room_type']} | Floor: {r['floor']} | Rate: {rate_formatted}/night | Status: {avail_str}"
+            )
+
+        lines.extend([
+            "",
+            "CRITICAL HOTEL BOOKING & AVAILABILITY RULES (STRICT):",
+            "1. ONLY REAL ROOMS: You MUST ONLY offer, suggest, or book rooms that appear in the official directory above.",
+            "2. NEVER INVENT ROOMS: NEVER make up room numbers (such as Room 101, 102, 201, or any unlisted room). If a room is not listed above, IT DOES NOT EXIST.",
+            "3. VACANCY REQUIREMENT: Only offer rooms whose status is 'AVAILABLE / VACANT'. Do NOT book rooms that are 'UNAVAILABLE' or 'OCCUPIED'.",
+            "4. NO DUMMY DATA: If a guest asks for a room type or room number that is not listed or not available, politely inform them: 'I apologize, that room is currently unavailable. The following rooms are currently available in our hotel directory:' and list the available options with their rates.",
+            "5. IN YOUR [ACTION: HOTEL_RESERVATION | {...}] TAG:",
+            "   - 'room_number': MUST EXACTLY match the room label from the directory above (e.g. 'Suite 01').",
+            "   - 'room_type': MUST EXACTLY match the category from the directory above.",
+            "   - 'nightly_rate': MUST match the actual rate specified in the directory.",
+            "************************************************************"
+        ])
+
+        return "\n".join(lines)
 
     @classmethod
     async def create_reservation_from_ai(
@@ -167,11 +204,11 @@ ACTIVE HOTEL ROOM INVENTORY:
         platform: str = "whatsapp"
     ) -> Optional[Dict[str, Any]]:
         """
-        Takes structured booking data from AI conversation, matches with actual room directory,
-        creates Guest & Reservation entities in the Hotel PMS database, triggers workflow automations,
-        and notifies frontdesk.
+        Takes structured booking data from AI conversation, verifies against genuine rooms in the
+        hotel directory (never creating dummy rooms), persists the reservation, triggers workflows,
+        and notifies the frontdesk.
         """
-        from services.db_service import resolve_business_id, get_business_profile
+        from services.db_service import resolve_business_id
         real_business_id = await resolve_business_id(business_id)
 
         guest_name = (
@@ -191,7 +228,6 @@ ACTIVE HOTEL ROOM INVENTORY:
         if not check_in:
             check_in = today_str
         if not check_out or str(check_out) <= str(check_in):
-            # Default to 1 night stay
             try:
                 cin_dt = datetime.strptime(str(check_in).strip()[:10], "%Y-%m-%d")
                 check_out = (cin_dt + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -199,35 +235,123 @@ ACTIVE HOTEL ROOM INVENTORY:
                 check_in = today_str
                 check_out = tomorrow_str
 
-        room_type = (
-            reservation_data.get("room_type") or 
-            reservation_data.get("room") or 
-            "Standard Room"
-        ).strip()
+        cin_str = str(check_in)[:10]
+        cout_str = str(check_out)[:10]
 
-        room_number = str(reservation_data.get("room_number") or "").strip()
         nights = int(reservation_data.get("nights") or 1)
         try:
-            cin_dt = datetime.strptime(str(check_in)[:10], "%Y-%m-%d")
-            cout_dt = datetime.strptime(str(check_out)[:10], "%Y-%m-%d")
-            calculated_nights = max(1, (cout_dt - cin_dt).days)
-            nights = calculated_nights
+            cin_dt = datetime.strptime(cin_str, "%Y-%m-%d")
+            cout_dt = datetime.strptime(cout_str, "%Y-%m-%d")
+            nights = max(1, (cout_dt - cin_dt).days)
         except Exception:
             pass
 
-        nightly_rate = float(reservation_data.get("nightly_rate") or 15000.0)
-        total_amount = float(reservation_data.get("total_amount") or (nightly_rate * nights))
+        requested_room_type = (
+            reservation_data.get("room_type") or 
+            reservation_data.get("room") or 
+            ""
+        ).strip()
+
+        requested_room_number = str(reservation_data.get("room_number") or "").strip()
         special_requests = reservation_data.get("special_requests") or reservation_data.get("notes") or ""
         property_id = reservation_data.get("property_id") or None
 
         logger.info(
-            f"[HotelReservationService] Processing AI reservation for {guest_name} "
-            f"({check_in} to {check_out}, Requested Room: {room_number or room_type}) in org {real_business_id}"
+            f"[HotelReservationService] Processing reservation for {guest_name} "
+            f"({cin_str} to {cout_str}, Room: '{requested_room_number}' / '{requested_room_type}') in org {real_business_id}"
         )
 
         async with AsyncSessionLocal() as session:
             try:
-                # 1. Resolve or Create Guest Entity
+                # 1. Fetch genuine rooms from the hotel directory
+                room_type_id = await cls._get_or_create_entity_type(session, real_business_id, "hotel_room", "Hotel Room")
+                all_rooms_stmt = select(EntityV2).where(
+                    EntityV2.org_id == real_business_id,
+                    EntityV2.entity_type_id == room_type_id
+                )
+                all_rooms_res = await session.execute(all_rooms_stmt)
+                raw_rooms = all_rooms_res.scalars().all()
+
+                # Filter out dummy/mock seed data
+                genuine_rooms = [
+                    r for r in raw_rooms 
+                    if (r.display_label or "").strip().lower() not in DUMMY_ROOM_LABELS
+                ]
+
+                if not genuine_rooms:
+                    logger.error(
+                        f"[HotelReservationService] REJECTED: Business {real_business_id} has no registered "
+                        f"rooms in the hotel directory. Cannot assign a fake room."
+                    )
+                    return None
+
+                # 2. Check existing active reservations for date overlaps
+                res_type_id = await cls._get_or_create_entity_type(session, real_business_id, "hotel_reservation", "Hotel Reservation")
+                stmt_existing_res = select(EntityV2).where(
+                    EntityV2.org_id == real_business_id,
+                    EntityV2.entity_type_id == res_type_id
+                )
+                existing_res_res = await session.execute(stmt_existing_res)
+                active_reservations = existing_res_res.scalars().all()
+
+                booked_room_ids = set()
+                for r in active_reservations:
+                    attrs = r.attributes or {}
+                    status = attrs.get("status", "RESERVED").upper()
+                    if status in ("CANCELLED", "CHECKED_OUT"):
+                        continue
+                    r_cin = str(attrs.get("check_in_date") or "")[:10]
+                    r_cout = str(attrs.get("check_out_date") or "")[:10]
+                    r_room_id = attrs.get("room_id")
+                    if r_room_id and r_cin and r_cout:
+                        if r_cin < cout_str and r_cout > cin_str:
+                            booked_room_ids.add(r_room_id)
+
+                # 3. Resolve genuine room that is available
+                matched_room = None
+
+                # (a) Match by exact room label/number if provided
+                if requested_room_number:
+                    for r in genuine_rooms:
+                        if r.display_label.strip().lower() == requested_room_number.lower():
+                            if r.id not in booked_room_ids and (r.attributes or {}).get("status", "VACANT") == "VACANT":
+                                matched_room = r
+                                break
+
+                # (b) Match by room type among available rooms
+                if not matched_room and requested_room_type:
+                    for r in genuine_rooms:
+                        if r.id in booked_room_ids:
+                            continue
+                        attrs = r.attributes or {}
+                        if attrs.get("status", "VACANT") != "VACANT":
+                            continue
+                        r_type = (attrs.get("room_type") or "").lower()
+                        if r_type and (r_type in requested_room_type.lower() or requested_room_type.lower() in r_type):
+                            matched_room = r
+                            break
+
+                # (c) Fallback to ANY vacant and available room in the hotel directory
+                if not matched_room:
+                    for r in genuine_rooms:
+                        if r.id not in booked_room_ids and (r.attributes or {}).get("status", "VACANT") == "VACANT":
+                            matched_room = r
+                            break
+
+                if not matched_room:
+                    logger.warning(
+                        f"[HotelReservationService] REJECTED: All registered rooms in {real_business_id} "
+                        f"are fully booked or unavailable for dates {cin_str} to {cout_str}. Will not create dummy room."
+                    )
+                    return None
+
+                room_attrs = matched_room.attributes or {}
+                actual_room_number = matched_room.display_label
+                actual_room_type = room_attrs.get("room_type", requested_room_type or "Standard Room")
+                nightly_rate = float(room_attrs.get("nightly_rate") or reservation_data.get("nightly_rate") or 150.0)
+                total_amount = float(reservation_data.get("total_amount") or (nightly_rate * nights))
+
+                # 4. Resolve or Create Guest Entity
                 guest_type_id = await cls._get_or_create_entity_type(session, real_business_id, "hotel_guest", "Hotel Guest")
                 guest_stmt = select(EntityV2).where(
                     EntityV2.org_id == real_business_id,
@@ -262,88 +386,23 @@ ACTIVE HOTEL ROOM INVENTORY:
                     guest.attributes = attrs
                     session.add(guest)
 
-                # 2. Resolve Existing Room from Directory (DO NOT CREATE PHANTOM ROOMS)
-                room_type_id = await cls._get_or_create_entity_type(session, real_business_id, "hotel_room", "Hotel Room")
-                all_rooms_stmt = select(EntityV2).where(
-                    EntityV2.org_id == real_business_id,
-                    EntityV2.entity_type_id == room_type_id
-                )
-                all_rooms_res = await session.execute(all_rooms_stmt)
-                all_rooms = all_rooms_res.scalars().all()
-
-                room = None
-
-                # A. Try matching exact room number / label
-                if room_number and all_rooms:
-                    for r in all_rooms:
-                        if r.display_label.strip().lower() == room_number.strip().lower():
-                            room = r
-                            break
-
-                # B. Try matching by room type
-                if not room and all_rooms and room_type:
-                    for r in all_rooms:
-                        r_attrs = r.attributes or {}
-                        existing_type = str(r_attrs.get("room_type", "")).lower()
-                        target_type = room_type.lower()
-                        if existing_type in target_type or target_type in existing_type:
-                            room = r
-                            break
-
-                # C. Fallback to first available room in the hotel directory
-                if not room and all_rooms:
-                    # Prefer VACANT room
-                    vacant_room = next((r for r in all_rooms if (r.attributes or {}).get("status", "").upper() == "VACANT"), None)
-                    room = vacant_room or all_rooms[0]
-
-                # D. If hotel has NO rooms registered at all, create an initial room
-                if not room:
-                    room_number = room_number or "101"
-                    room = EntityV2(
-                        id=f"ent_{uuid.uuid4().hex[:16]}",
-                        org_id=real_business_id,
-                        entity_type_id=room_type_id,
-                        display_label=room_number,
-                        attributes={
-                            "room_type": room_type,
-                            "floor": "1",
-                            "status": "VACANT",
-                            "housekeeping": "Clean",
-                            "nightly_rate": nightly_rate,
-                            "property_id": property_id
-                        }
-                    )
-                    session.add(room)
-                    await session.flush()
-
-                # Adopt real rate and room number from the matched room in the Room Directory
-                room_attrs = room.attributes or {}
-                room_number = room.display_label
-                room_type = room_attrs.get("room_type", room_type)
-                real_rate = room_attrs.get("nightly_rate")
-                if real_rate is not None and float(real_rate) > 0:
-                    nightly_rate = float(real_rate)
-                    total_amount = nightly_rate * nights
-
-                # 3. Create Reservation Entity in PMS
-                res_type_id = await cls._get_or_create_entity_type(session, real_business_id, "hotel_reservation", "Hotel Reservation")
+                # 5. Create Reservation Entity in PMS linked to the REAL room
                 reservation_id = f"ent_{uuid.uuid4().hex[:16]}"
-                
                 reservation = EntityV2(
                     id=reservation_id,
                     org_id=real_business_id,
                     entity_type_id=res_type_id,
-                    display_label=f"Res: {guest_name} - Room {room_number}",
+                    display_label=f"Res: {guest_name} - {actual_room_number}",
                     attributes={
                         "guest_id": guest.id,
                         "guest_name": guest.display_label,
                         "guest_phone": customer_phone or guest.attributes.get("phone", ""),
                         "guest_email": customer_email or guest.attributes.get("email", ""),
-                        "room_id": room.id,
-                        "room_number": room_number,
-                        "room_type": room_type,
-                        "check_in_date": str(check_in)[:10],
-                        "check_out_date": str(check_out)[:10],
+                        "room_id": matched_room.id,
+                        "room_number": actual_room_number,
+                        "room_type": actual_room_type,
+                        "check_in_date": cin_str,
+                        "check_out_date": cout_str,
                         "nights": nights,
                         "status": "RESERVED",
                         "checked_in": False,
@@ -361,29 +420,28 @@ ACTIVE HOTEL ROOM INVENTORY:
 
                 logger.info(
                     f"[HotelReservationService] Successfully created reservation {reservation_id} "
-                    f"for {guest_name} in Room {room_number} ({check_in} to {check_out}) at {nightly_rate}/night"
+                    f"for {guest_name} in REAL Room '{actual_room_number}' ({cin_str} to {cout_str})"
                 )
 
-                # 4. Trigger Workflow Engine for Automations
+                # 6. Trigger Workflow Engine for Automations
                 try:
                     await workflow_engine.trigger_workflow(real_business_id, "reservation_booked", {
                         "reservation_id": reservation.id,
                         "guest_name": guest_name,
                         "guest_phone": customer_phone,
                         "guest_email": customer_email,
-                        "room_number": room_number,
-                        "room_type": room_type,
-                        "check_in": check_in,
-                        "check_out": check_out,
+                        "room_number": actual_room_number,
+                        "room_type": actual_room_type,
+                        "check_in": cin_str,
+                        "check_out": cout_str,
                         "nights": nights,
-                        "nightly_rate": nightly_rate,
                         "total_amount": total_amount,
                         "platform": platform
                     })
                 except Exception as wf_err:
                     logger.warning(f"[HotelReservationService] Workflow trigger error: {wf_err}")
 
-                # 5. Dispatch Direct Front Desk Alert via Department Routing
+                # 7. Dispatch Direct Front Desk Alert via Department Routing
                 try:
                     await cls._dispatch_frontdesk_alert(
                         business_id=real_business_id,
@@ -397,12 +455,11 @@ ACTIVE HOTEL ROOM INVENTORY:
                 return {
                     "id": reservation.id,
                     "guest_name": guest_name,
-                    "room_number": room_number,
-                    "room_type": room_type,
-                    "check_in_date": str(check_in)[:10],
-                    "check_out_date": str(check_out)[:10],
+                    "room_number": actual_room_number,
+                    "room_type": actual_room_type,
+                    "check_in_date": cin_str,
+                    "check_out_date": cout_str,
                     "nights": nights,
-                    "nightly_rate": nightly_rate,
                     "status": "RESERVED",
                     "total_amount": total_amount
                 }
@@ -420,10 +477,8 @@ ACTIVE HOTEL ROOM INVENTORY:
         property_id: Optional[str] = None,
         platform: str = "whatsapp"
     ):
-        """Notifies the front desk via their configured WhatsApp or Email channels with accurate currency."""
+        """Notifies the front desk via their configured WhatsApp or Email channels."""
         from services.routing_service import DepartmentRoutingService
-        from services.db_service import get_business_profile
-
         resolved = await DepartmentRoutingService.resolve_recipient(
             business_id=business_id,
             department="frontdesk",
@@ -439,31 +494,19 @@ ACTIVE HOTEL ROOM INVENTORY:
         room_type = attrs.get("room_type", "Standard Room")
         check_in = attrs.get("check_in_date")
         check_out = attrs.get("check_out_date")
-        nights = attrs.get("nights", 1)
-        nightly_rate = float(attrs.get("nightly_rate", 0))
-        total_amt = float(attrs.get("total_amount", 0))
+        total_amt = attrs.get("total_amount", 0)
         phone = attrs.get("guest_phone", "N/A")
 
-        # Currency resolution
-        profile = await get_business_profile(business_id)
-        country = str(profile.get("country", "")).lower()
-        profile_currency = str(profile.get("currency", "")).upper()
-
-        if "nigeria" in country or profile_currency == "NGN" or nightly_rate >= 1000:
-            currency_sym = "₦"
-        else:
-            currency_sym = "$"
-
+        currency_symbol = "₦" if total_amt > 500 else "$"
         alert_message = (
             f"🛎️ *NEW HOTEL RESERVATION CONFIRMED*\n\n"
             f"• *Guest*: {guest_name}\n"
             f"• *Contact*: {phone}\n"
             f"• *Room*: {room_number} ({room_type})\n"
-            f"• *Rate*: {currency_sym}{nightly_rate:,.2f} / night\n"
-            f"• *Dates*: {check_in} to {check_out} ({nights} night{'s' if nights > 1 else ''})\n"
-            f"• *Total*: {currency_sym}{total_amt:,.2f}\n"
+            f"• *Dates*: {check_in} to {check_out}\n"
+            f"• *Total*: {currency_symbol}{total_amt:,.2f}\n"
             f"• *Booked via*: {platform.capitalize()} AI\n\n"
-            f"The reservation is recorded in your Hotel Reservations Dashboard."
+            f"The reservation is synchronized with your Hotel Reservations Dashboard."
         )
 
         if target_phone:
@@ -479,10 +522,9 @@ ACTIVE HOTEL ROOM INVENTORY:
             <p><strong>Guest:</strong> {guest_name}</p>
             <p><strong>Contact:</strong> {phone}</p>
             <p><strong>Room:</strong> {room_number} ({room_type})</p>
-            <p><strong>Nightly Rate:</strong> {currency_sym}{nightly_rate:,.2f}</p>
             <p><strong>Check-In:</strong> {check_in}</p>
-            <p><strong>Check-Out:</strong> {check_out} ({nights} night{'s' if nights > 1 else ''})</p>
-            <p><strong>Total Amount:</strong> {currency_sym}{total_amt:,.2f}</p>
+            <p><strong>Check-Out:</strong> {check_out}</p>
+            <p><strong>Total Amount:</strong> {currency_symbol}{total_amt:,.2f}</p>
             <p><strong>Channel:</strong> {platform.capitalize()} AI</p>
             <br/>
             <p>This reservation has been synchronized to your Hotel Reservations Dashboard.</p>

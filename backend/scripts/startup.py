@@ -36,6 +36,25 @@ async def init_db():
                 await conn.run_sync(add_sqlite_cols)
         except Exception as e:
             print(f"Non-critical schema compatibility check note: {e}")
+
+    # Purge legacy mock dummy rooms/guests seeded during older tenant provisioning
+    async with engine.begin() as conn:
+        from sqlalchemy import text
+        try:
+            if engine.dialect.name == "postgresql":
+                await conn.execute(text("""
+                    DELETE FROM entities_v2 
+                    WHERE display_label IN ('Room 101', 'Room 102', 'Room 201', 'Alice Smith', 'Bob Johnson')
+                       OR (display_label = '201' AND attributes->>'room_type' = 'Executive Suite' AND (attributes->>'nightly_rate')::numeric = 250);
+                """))
+            else:
+                await conn.execute(text("""
+                    DELETE FROM entities_v2 
+                    WHERE display_label IN ('Room 101', 'Room 102', 'Room 201', 'Alice Smith', 'Bob Johnson');
+                """))
+            print("Purged legacy mock dummy hotel data.")
+        except Exception as purge_err:
+            print(f"Dummy data purge note: {purge_err}")
             
     # Check if alembic_version table exists
     async with engine.connect() as conn:
