@@ -2972,6 +2972,24 @@ async def maintenance_endpoint(req: dict):
             await session.commit()
             return {"status": "success", "message": f"Lifetime Enterprise plan and 1M tokens granted to {real_bid}"}
 
+        elif action == "topup_tokens":
+            biz_id = req.get("business_id")
+            amount = int(req.get("amount", 10000000))
+            if not biz_id: return {"status": "error", "message": "Missing business_id"}
+            from database.models.billing import TokenWallet
+            from services.db_service import resolve_business_id
+            real_bid = await resolve_business_id(biz_id)
+            wallet_stmt = select(TokenWallet).where(TokenWallet.business_id == real_bid)
+            wallet = (await session.execute(wallet_stmt)).scalar_one_or_none()
+            if not wallet:
+                wallet = TokenWallet(business_id=real_bid, sub_balance=amount, payg_balance=0, status="active")
+                session.add(wallet)
+            else:
+                wallet.sub_balance = (wallet.sub_balance or 0) + amount
+                wallet.status = "active"
+                session.add(wallet)
+            await session.commit()
+            return {"status": "success", "business_id": real_bid, "sub_balance": wallet.sub_balance}
 
     return {"status": "unknown_action"}
 
