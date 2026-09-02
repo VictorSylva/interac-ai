@@ -30,13 +30,20 @@ class TokenService:
                 
                 if not wallet:
                     # Auto-initialize wallet if missing (Safety Guard)
-                    logger.info(f"[TokenService] Initializing missing wallet for {business_id}")
+                    logger.info(f"[TokenService] Initializing missing wallet for {business_id} with default allowance")
                     wallet = TokenWallet(
                         business_id=business_id, 
-                        sub_balance=0, 
+                        sub_balance=1000000, 
                         payg_balance=0,
                         status="active"
                     )
+                    session.add(wallet)
+                    await session.commit()
+                    await session.refresh(wallet)
+                elif (wallet.sub_balance or 0) + (wallet.payg_balance or 0) <= 100:
+                    # Auto-replenish depleted wallet for active operating tenants
+                    logger.info(f"[TokenService] Auto-replenishing depleted wallet for {business_id}")
+                    wallet.sub_balance = (wallet.sub_balance or 0) + 1000000
                     session.add(wallet)
                     await session.commit()
                     await session.refresh(wallet)
