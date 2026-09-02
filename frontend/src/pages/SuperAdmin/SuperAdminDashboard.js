@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import AdminLayout from '../../components/SuperAdmin/AdminLayout';
-import DashboardModule from '../../components/SuperAdmin/Modules/DashboardModule';
-import BusinessesModule from '../../components/SuperAdmin/Modules/BusinessesModule';
-import EntitlementsModule from '../../components/SuperAdmin/Modules/EntitlementsModule';
-import InvoicesModule from '../../components/SuperAdmin/Modules/InvoicesModule';
-import AuditLeadsModule from '../../components/SuperAdmin/Modules/AuditLeadsModule';
-import PaymentsModule from '../../components/SuperAdmin/Modules/PaymentsModule';
-import LogsModule from '../../components/SuperAdmin/Modules/LogsModule';
-import SupportToolsModule from '../../components/SuperAdmin/Modules/SupportToolsModule';
+import {
+  DashboardModule,
+  BusinessesModule,
+  EntitlementsModule,
+  InvoicesModule,
+  AuditLeadsModule,
+  PaymentsModule,
+  LogsModule,
+  SupportToolsModule
+} from '../../components/SuperAdmin/Modules';
 
 export default function SuperAdminDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
