@@ -151,11 +151,18 @@ export function AuthProvider({ children }) {
   }, []);
 
 
-  function updateProfile(userId, department, role) {
+  function updateProfile(userId, department, role, phone = null, receive_operational_alerts = null, notification_preference = null) {
     return fetch(`${API_BASE_URL}/api/auth/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId, department, role })
+        body: JSON.stringify({ 
+            user_id: userId, 
+            department, 
+            role,
+            phone,
+            receive_operational_alerts,
+            notification_preference
+        })
     }).then(async res => {
         if (!res.ok) {
             const err = await res.json();
@@ -166,6 +173,9 @@ export function AuthProvider({ children }) {
             ...currentUser, 
             role: data.user.role, 
             department: data.user.department,
+            phone: data.user.phone,
+            receive_operational_alerts: data.user.receive_operational_alerts,
+            notification_preference: data.user.notification_preference,
             permissions: data.user.permissions || currentUser.permissions
         };
         setCurrentUser(updatedUser);

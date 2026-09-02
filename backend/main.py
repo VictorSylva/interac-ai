@@ -22,7 +22,7 @@ import os
 import json
 import re
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
 from services.ai_service import generate_response
 from services.prompt_service import prompt_service
@@ -267,7 +267,7 @@ async def startup_event():
     # Auto-create tables for MVP (replaces manually running alembic revision for now)
     from database.session import engine
     from database.base import Base
-    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales
+    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, entitlement
     import asyncio
     
     max_retries = 20
@@ -299,7 +299,12 @@ async def startup_event():
                     "ALTER TABLE users ADD COLUMN {ine} email_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE users ADD COLUMN {ine} verification_token VARCHAR",
                     "ALTER TABLE users ADD COLUMN {ine} role_id VARCHAR",
-                    "ALTER TABLE users ADD COLUMN {ine} department_id VARCHAR"
+                    "ALTER TABLE users ADD COLUMN {ine} department_id VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} phone VARCHAR",
+                    "ALTER TABLE users ADD COLUMN {ine} receive_operational_alerts BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE users ADD COLUMN {ine} notification_preference VARCHAR DEFAULT 'all'",
+                    "ALTER TABLE user_invitations ADD COLUMN {ine} phone VARCHAR",
+                    "ALTER TABLE business_settings ADD COLUMN {ine} notification_cooldown_minutes INTEGER DEFAULT 30"
                 ]
                 
                 for stmt in statements:
@@ -397,6 +402,19 @@ async def startup_event():
             from modules.loader import load_all_industry_modules
             await load_all_industry_modules()
             
+            # Start Escalation Background Daemon
+            async def escalation_daemon_loop():
+                logger.info("[Startup] Escalation background daemon started.")
+                while True:
+                    try:
+                        from services.routing_service import DepartmentRoutingService
+                        await DepartmentRoutingService.check_and_trigger_escalations()
+                    except Exception as daemon_err:
+                        logger.error(f"[EscalationDaemon] Error running check: {daemon_err}")
+                    await asyncio.sleep(60)
+            
+            asyncio.create_task(escalation_daemon_loop())
+            
             break
         except Exception as e:
             if attempt < max_retries - 1:
@@ -424,13 +442,18 @@ from routes import (
     observation_routes,
     module_routes,
     hotel_routes,
-    copilot_fallback_routes
+    hospital_routes,
+    retail_routes,
+    education_routes,
+    copilot_fallback_routes,
+    entitlement_routes
 )
 
 app.include_router(config_routes.router)
 app.include_router(whatsapp_router, prefix="/whatsapp")
 app.include_router(token_routes.router, prefix="/api/tokens", tags=["Tokens"])
 app.include_router(subscription_routes.router, prefix="/api/subscriptions", tags=["Subscriptions"])
+app.include_router(entitlement_routes.router)
 app.include_router(email_routes.router, prefix="/api/email", tags=["Email"])
 app.include_router(usage_routes.router, prefix="/api/usage", tags=["Usage"])
 app.include_router(sales_routes.router, prefix="/api/sales", tags=["Sales"])
@@ -440,6 +463,9 @@ app.include_router(entity_routes.router)
 app.include_router(observation_routes.router)
 app.include_router(module_routes.router)
 app.include_router(hotel_routes.router)
+app.include_router(hospital_routes.router)
+app.include_router(retail_routes.router)
+app.include_router(education_routes.router)
 app.include_router(copilot_fallback_routes.router)
 
 
@@ -670,11 +696,22 @@ async def reset_password_endpoint(body: ResetPasswordRequest):
             raise HTTPException(status_code=400, detail="Invalid or expired token")
         return {"status": "success", "message": "Password updated"}
 
+def normalize_agent_phone(phone: str) -> str:
+    if not phone:
+        return ""
+    clean = "".join(c for c in phone if c.isdigit())
+    if clean.startswith("0") and len(clean) == 11:
+        clean = "234" + clean[1:]
+    return clean
+
 class UpdateProfileRequest(BaseModel):
     user_id: str
     department: str
     role: str
     property_id: Optional[str] = None
+    phone: Optional[str] = None
+    receive_operational_alerts: Optional[bool] = None
+    notification_preference: Optional[str] = None
 
 @app.put("/api/auth/profile")
 async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict = Depends(get_current_user)):
@@ -701,6 +738,12 @@ async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict
         else:
             user.property_id = body.property_id
             
+        user.phone = normalize_agent_phone(body.phone) if body.phone is not None else user.phone
+        if body.receive_operational_alerts is not None:
+            user.receive_operational_alerts = body.receive_operational_alerts
+        if body.notification_preference is not None:
+            user.notification_preference = body.notification_preference
+            
         await session.commit()
         await session.refresh(user)
         permissions = await get_user_permissions(user, session)
@@ -714,6 +757,9 @@ async def update_profile_endpoint(body: UpdateProfileRequest, current_user: dict
                 "role": user.role,
                 "department": user.department,
                 "property_id": user.property_id,
+                "phone": user.phone,
+                "receive_operational_alerts": user.receive_operational_alerts,
+                "notification_preference": user.notification_preference,
                 "permissions": permissions
             }
         }
@@ -723,6 +769,7 @@ class InviteRequest(BaseModel):
     role: str
     department: str
     property_id: Optional[str] = None
+    phone: Optional[str] = None
 
 @app.post("/api/auth/invite")
 async def invite_employee_endpoint(body: InviteRequest, current_user: dict = Depends(get_current_user)):
@@ -739,7 +786,8 @@ async def invite_employee_endpoint(body: InviteRequest, current_user: dict = Dep
             email=body.email,
             role_code=body.role,
             department=body.department,
-            property_id=body.property_id
+            property_id=body.property_id,
+            phone=body.phone
         )
         return {
             "status": "success",
@@ -875,6 +923,9 @@ async def get_business_users_endpoint(current_user: dict = Depends(get_current_u
                 "role": u.role,
                 "department": u.department or "general",
                 "property_id": u.property_id,
+                "phone": u.phone,
+                "receive_operational_alerts": u.receive_operational_alerts,
+                "notification_preference": u.notification_preference,
                 "status": u.status or "active",
                 "created_at": u.created_at
             } for u in users
@@ -1113,67 +1164,100 @@ async def collect_behavior_analytics(req: BABatchRequest):
     return {"status": "success" if success else "failed"}
 
 @app.get("/api/behavior-analytics/dashboard")
-async def get_behavior_dashboard(business_id: str, days: int = 7):
-    """Fetch data for the new isolated Behavioral Analytics dashboard with real-time support."""
+async def get_behavior_dashboard(business_id: str, days: int = 7, traffic_type: str = "visitors"):
+    """Fetch data for the new isolated Behavioral Analytics dashboard with real-time support and filtering."""
     from database.models.behavior_analytics import BAAggregate, BASession, BAEvent
-    from sqlalchemy import func
+    from sqlalchemy import func, and_, not_, or_, text
+    import traceback
     
     bid = await resolve_business_id(business_id)
     now = datetime.utcnow()
     start_date = now - timedelta(days=days)
-    today_start = datetime.combine(now.date(), datetime.min.time())
+
+    exclude_paths = ["/dashboard", "/super-admin", "/login", "/reset-password", "/accept-invitation"]
+
+    def apply_path_filter(query):
+        if traffic_type == "dashboard":
+            # Must start with one of the exclude paths
+            return query.where(or_(*[BAEvent.path.like(f"{p}%") for p in exclude_paths]))
+        else:
+            # Must NOT start with any of the exclude paths
+            return query.where(and_(*[not_(BAEvent.path.like(f"{p}%")) for p in exclude_paths]))
 
     async with AsyncSessionLocal() as session:
         try:
-            # 1. Aggregates (Past days)
-            agg_stmt = select(BAAggregate).where(
-                BAAggregate.business_id == bid,
-                BAAggregate.date >= start_date
-            )
-            aggregates = (await session.execute(agg_stmt)).scalars().all()
+            # 1. Calculate dynamic chart data grouped by date
             chart_data = {}
-            for agg in aggregates:
-                d_str = agg.date.strftime("%Y-%m-%d")
-                if d_str not in chart_data: chart_data[d_str] = {"date": d_str}
-                chart_data[d_str][agg.metric_name] = agg.metric_value
-
-            # 2. Real-time stats for Today (not yet in aggregates)
-            today_str = now.strftime("%Y-%m-%d")
-            if today_str not in chart_data:
-                # Calculate real-time stats for today
-                today_sessions = (await session.execute(select(func.count(BASession.id)).where(
-                    BASession.business_id == bid, BASession.start_time >= today_start
-                ))).scalar() or 0
-                today_pvs = (await session.execute(select(func.count(BAEvent.id)).where(
-                    BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= today_start
-                ))).scalar() or 0
-                today_users = (await session.execute(select(func.count(func.distinct(BASession.visitor_id))).where(
-                    BASession.business_id == bid, BASession.start_time >= today_start
-                ))).scalar() or 0
-                
-                chart_data[today_str] = {
-                    "date": today_str,
-                    "sessions": today_sessions,
-                    "pageviews": today_pvs,
-                    "unique_users": today_users
+            for i in range(days + 1):
+                d = (now - timedelta(days=days - i)).strftime("%Y-%m-%d")
+                chart_data[d] = {
+                    "date": d,
+                    "sessions": 0,
+                    "pageviews": 0,
+                    "unique_users": 0
                 }
 
-            # 3. Top Pages (BAEvent)
+            # Query dynamic stats from BAEvent & BASession
+            stmt = select(
+                func.date(BAEvent.timestamp).label("date_label"),
+                func.count(BAEvent.id).label("pageviews"),
+                func.count(func.distinct(BAEvent.session_id)).label("sessions"),
+                func.count(func.distinct(BASession.visitor_id)).label("unique_users")
+            ).join(
+                BASession, BASession.id == BAEvent.session_id
+            ).where(
+                BAEvent.business_id == bid,
+                BAEvent.timestamp >= start_date
+            )
+            stmt = apply_path_filter(stmt)
+            stmt = stmt.group_by(func.date(BAEvent.timestamp)).order_by(text("date_label ASC"))
+            
+            res = await session.execute(stmt)
+            for row in res.all():
+                d_val = row[0]
+                if isinstance(d_val, datetime):
+                    d_str = d_val.strftime("%Y-%m-%d")
+                elif hasattr(d_val, "strftime"):
+                    d_str = d_val.strftime("%Y-%m-%d")
+                else:
+                    d_str = str(d_val)
+                
+                if d_str in chart_data:
+                    chart_data[d_str] = {
+                        "date": d_str,
+                        "pageviews": row[1] or 0,
+                        "sessions": row[2] or 0,
+                        "unique_users": row[3] or 0
+                    }
+
+            # 2. Top Pages
             pages_stmt = select(BAEvent.path, func.count(BAEvent.id).label("c")).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.path).order_by(text("c DESC")).limit(10)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "pageview",
+                BAEvent.timestamp >= start_date
+            )
+            pages_stmt = apply_path_filter(pages_stmt)
+            pages_stmt = pages_stmt.group_by(BAEvent.path).order_by(text("c DESC")).limit(10)
             top_pages = (await session.execute(pages_stmt)).all()
 
-            # 4. Top Clicks (BAEvent)
+            # 3. Top Clicks
             clicks_stmt = select(BAEvent.element_text, func.count(BAEvent.id).label("c")).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "click", BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.element_text).order_by(text("c DESC")).limit(10)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "click",
+                BAEvent.timestamp >= start_date
+            )
+            clicks_stmt = apply_path_filter(clicks_stmt)
+            clicks_stmt = clicks_stmt.group_by(BAEvent.element_text).order_by(text("c DESC")).limit(10)
             top_clicks = (await session.execute(clicks_stmt)).all()
 
-            # 5. Journey Sequences
+            # 4. Journey Sequences
             journey_stmt = select(BASession.id, BAEvent.path, BAEvent.timestamp).join(BAEvent).where(
-                BAEvent.business_id == bid, BAEvent.event_type == "pageview", BAEvent.timestamp >= start_date
-            ).order_by(BASession.id, BAEvent.timestamp)
+                BAEvent.business_id == bid,
+                BAEvent.event_type == "pageview",
+                BAEvent.timestamp >= start_date
+            )
+            journey_stmt = apply_path_filter(journey_stmt)
+            journey_stmt = journey_stmt.order_by(BASession.id, BAEvent.timestamp)
             rows = (await session.execute(journey_stmt)).all()
             
             sessions_map = {}
@@ -1197,24 +1281,25 @@ async def get_behavior_dashboard(business_id: str, days: int = 7):
             top_sequences = sorted([{"seq": k, "count": v} for k, v in sequences.items()], key=lambda x: x["count"], reverse=True)[:5]
             top_dropoffs = sorted([{"path": k, "count": v} for k, v in dropoffs.items()], key=lambda x: x["count"], reverse=True)[:5]
 
-            # 6. Offer Funnel Stats
-            offer_stats_stmt = select(
-                BAEvent.offer_id, 
-                BAEvent.event_type, 
-                func.count(BAEvent.id)
-            ).where(
-                BAEvent.business_id == bid,
-                BAEvent.offer_id.isnot(None),
-                BAEvent.timestamp >= start_date
-            ).group_by(BAEvent.offer_id, BAEvent.event_type)
-            
-            offer_rows = (await session.execute(offer_stats_stmt)).all()
+            # 5. Offer Funnel Stats
             offer_funnels = {}
-            for oid, etype, count in offer_rows:
-                if oid not in offer_funnels: offer_funnels[oid] = {"offer_id": oid, "views": 0, "clicks": 0, "conversions": 0}
-                if etype == "pageview": offer_funnels[oid]["views"] += count
-                elif etype == "click": offer_funnels[oid]["clicks"] += count
-                elif etype == "conversion": offer_funnels[oid]["conversions"] += count
+            if traffic_type == "visitors":
+                offer_stats_stmt = select(
+                    BAEvent.offer_id, 
+                    BAEvent.event_type, 
+                    func.count(BAEvent.id)
+                ).where(
+                    BAEvent.business_id == bid,
+                    BAEvent.offer_id.isnot(None),
+                    BAEvent.timestamp >= start_date
+                )
+                offer_stats_stmt = offer_stats_stmt.group_by(BAEvent.offer_id, BAEvent.event_type)
+                offer_rows = (await session.execute(offer_stats_stmt)).all()
+                for oid, etype, count in offer_rows:
+                    if oid not in offer_funnels: offer_funnels[oid] = {"offer_id": oid, "views": 0, "clicks": 0, "conversions": 0}
+                    if etype == "pageview": offer_funnels[oid]["views"] += count
+                    elif etype == "click": offer_funnels[oid]["clicks"] += count
+                    elif etype == "conversion": offer_funnels[oid]["conversions"] += count
 
             return {
                 "chart_data": sorted(chart_data.values(), key=lambda x: x["date"]),
@@ -1231,6 +1316,7 @@ async def get_behavior_dashboard(business_id: str, days: int = 7):
             }
         except Exception as e:
             logger.error(f"Error BA Dashboard: {e}")
+            traceback.print_exc()
             raise HTTPException(status_code=500, detail="BA Dashboard fetch failed")
 
 @app.get("/api/business-status")
@@ -1269,6 +1355,250 @@ async def update_profile(profile: BusinessProfile):
     except Exception as e:
         logger.error(f"Error in update_profile: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+class SaveRoutingConfigRequest(BaseModel):
+    department: str
+    business_id: Optional[str] = None
+    display_name: Optional[str] = None
+    notification_phone: Optional[str] = None
+    notification_email: Optional[str] = None
+    primary_user_id: Optional[str] = None
+    routing_enabled: Optional[bool] = True
+    whatsapp_enabled: Optional[bool] = True
+    email_enabled: Optional[bool] = True
+    escalation_enabled: Optional[bool] = False
+    escalation_timeout_minutes: Optional[int] = 30
+    escalation_user_id: Optional[str] = None
+    escalation_level2_user_id: Optional[str] = None
+    property_id: Optional[str] = None
+
+class SaveBulkRoutingConfigRequest(BaseModel):
+    business_id: Optional[str] = None
+    configs: List[SaveRoutingConfigRequest]
+
+@app.get("/api/business/routing-configs")
+async def get_routing_configs_endpoint(
+    business_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    bid = business_id or current_user.get("business_id")
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(DepartmentConfig).where(DepartmentConfig.business_id == bid)
+        res = await session.execute(stmt)
+        configs = res.scalars().all()
+        return [
+            {
+                "id": c.id,
+                "business_id": c.business_id,
+                "department": c.department,
+                "display_name": c.display_name,
+                "notification_phone": c.notification_phone,
+                "notification_email": c.notification_email,
+                "primary_user_id": c.primary_user_id,
+                "routing_enabled": c.routing_enabled,
+                "whatsapp_enabled": c.whatsapp_enabled,
+                "email_enabled": c.email_enabled,
+                "escalation_enabled": c.escalation_enabled,
+                "escalation_timeout_minutes": c.escalation_timeout_minutes,
+                "escalation_user_id": c.escalation_user_id,
+                "escalation_level2_user_id": c.escalation_level2_user_id,
+                "property_id": getattr(c, "property_id", None)
+            } for c in configs
+        ]
+
+@app.post("/api/business/routing-configs")
+async def save_routing_config_endpoint(
+    body: SaveRoutingConfigRequest, 
+    business_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    bid = body.business_id or business_id or current_user.get("business_id")
+    
+    async with AsyncSessionLocal() as session:
+        stmt = select(DepartmentConfig).where(
+            DepartmentConfig.business_id == bid,
+            DepartmentConfig.department == body.department
+        )
+        if body.property_id:
+            stmt = stmt.where(DepartmentConfig.property_id == body.property_id)
+        else:
+            stmt = stmt.where(
+                (DepartmentConfig.property_id.is_(None)) | (DepartmentConfig.property_id == "")
+            )
+            
+        res = await session.execute(stmt)
+        config_obj = res.scalar_one_or_none()
+        
+        # Clean phone
+        phone_normalized = normalize_agent_phone(body.notification_phone) if body.notification_phone else None
+        
+        if config_obj:
+            # Update
+            config_obj.display_name = body.display_name or (body.department.capitalize())
+            config_obj.notification_phone = phone_normalized
+            config_obj.notification_email = body.notification_email
+            config_obj.primary_user_id = body.primary_user_id or None
+            config_obj.routing_enabled = body.routing_enabled if body.routing_enabled is not None else config_obj.routing_enabled
+            config_obj.whatsapp_enabled = body.whatsapp_enabled if body.whatsapp_enabled is not None else config_obj.whatsapp_enabled
+            config_obj.email_enabled = body.email_enabled if body.email_enabled is not None else config_obj.email_enabled
+            config_obj.escalation_enabled = body.escalation_enabled if body.escalation_enabled is not None else config_obj.escalation_enabled
+            config_obj.escalation_timeout_minutes = body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else config_obj.escalation_timeout_minutes
+            config_obj.escalation_user_id = body.escalation_user_id or None
+            config_obj.escalation_level2_user_id = body.escalation_level2_user_id or None
+            config_obj.property_id = body.property_id or None
+            config_obj.updated_at = datetime.utcnow()
+        else:
+            # Create
+            config_obj = DepartmentConfig(
+                business_id=bid,
+                department=body.department,
+                display_name=body.display_name or (body.department.capitalize()),
+                notification_phone=phone_normalized,
+                notification_email=body.notification_email,
+                primary_user_id=body.primary_user_id or None,
+                routing_enabled=body.routing_enabled if body.routing_enabled is not None else True,
+                whatsapp_enabled=body.whatsapp_enabled if body.whatsapp_enabled is not None else True,
+                email_enabled=body.email_enabled if body.email_enabled is not None else True,
+                escalation_enabled=body.escalation_enabled if body.escalation_enabled is not None else False,
+                escalation_timeout_minutes=body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else 30,
+                escalation_user_id=body.escalation_user_id or None,
+                escalation_level2_user_id=body.escalation_level2_user_id or None,
+                property_id=body.property_id or None
+            )
+            session.add(config_obj)
+            
+        await session.commit()
+        return {"status": "success", "config_id": config_obj.id}
+
+@app.post("/api/business/routing-configs/bulk")
+async def save_bulk_routing_configs_endpoint(
+    body: SaveBulkRoutingConfigRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    bid = body.business_id or current_user.get("business_id")
+    
+    async with AsyncSessionLocal() as session:
+        for c in body.configs:
+            stmt = select(DepartmentConfig).where(
+                DepartmentConfig.business_id == bid,
+                DepartmentConfig.department == c.department
+            )
+            if c.property_id:
+                stmt = stmt.where(DepartmentConfig.property_id == c.property_id)
+            else:
+                stmt = stmt.where(
+                    (DepartmentConfig.property_id.is_(None)) | (DepartmentConfig.property_id == "")
+                )
+            res = await session.execute(stmt)
+            config_obj = res.scalar_one_or_none()
+            
+            phone_normalized = normalize_agent_phone(c.notification_phone) if c.notification_phone else None
+            
+            if config_obj:
+                config_obj.display_name = c.display_name or (c.department.capitalize())
+                config_obj.notification_phone = phone_normalized
+                config_obj.notification_email = c.notification_email
+                config_obj.primary_user_id = c.primary_user_id or None
+                config_obj.routing_enabled = c.routing_enabled if c.routing_enabled is not None else config_obj.routing_enabled
+                config_obj.whatsapp_enabled = c.whatsapp_enabled if c.whatsapp_enabled is not None else config_obj.whatsapp_enabled
+                config_obj.email_enabled = c.email_enabled if c.email_enabled is not None else config_obj.email_enabled
+                config_obj.escalation_enabled = c.escalation_enabled if c.escalation_enabled is not None else config_obj.escalation_enabled
+                config_obj.escalation_timeout_minutes = c.escalation_timeout_minutes if c.escalation_timeout_minutes is not None else config_obj.escalation_timeout_minutes
+                config_obj.escalation_user_id = c.escalation_user_id or None
+                config_obj.escalation_level2_user_id = c.escalation_level2_user_id or None
+                config_obj.property_id = c.property_id or None
+                config_obj.updated_at = datetime.utcnow()
+            else:
+                config_obj = DepartmentConfig(
+                    business_id=bid,
+                    department=c.department,
+                    display_name=c.display_name or (c.department.capitalize()),
+                    notification_phone=phone_normalized,
+                    notification_email=c.notification_email,
+                    primary_user_id=c.primary_user_id or None,
+                    routing_enabled=c.routing_enabled if c.routing_enabled is not None else True,
+                    whatsapp_enabled=c.whatsapp_enabled if c.whatsapp_enabled is not None else True,
+                    email_enabled=c.email_enabled if c.email_enabled is not None else True,
+                    escalation_enabled=c.escalation_enabled if c.escalation_enabled is not None else False,
+                    escalation_timeout_minutes=c.escalation_timeout_minutes if c.escalation_timeout_minutes is not None else 30,
+                    escalation_user_id=c.escalation_user_id or None,
+                    escalation_level2_user_id=c.escalation_level2_user_id or None,
+                    property_id=c.property_id or None
+                )
+                session.add(config_obj)
+        await session.commit()
+        return {"status": "success", "count": len(body.configs)}
+
+@app.post("/api/notifications/{event_id}/acknowledge")
+async def acknowledge_notification_endpoint(event_id: str, current_user: dict = Depends(get_current_user)):
+    from database.session import AsyncSessionLocal
+    from database.models.general import NotificationEvent
+    
+    async with AsyncSessionLocal() as session:
+        event = await session.get(NotificationEvent, event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Notification event not found")
+            
+        # Verify tenant isolation
+        if event.business_id != current_user.get("business_id"):
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        event.status = "acknowledged"
+        event.acknowledged_at = datetime.utcnow()
+        event.acknowledged_by = current_user.get("id")
+        
+        await session.commit()
+        return {"status": "success", "message": "Notification acknowledged"}
+
+@app.post("/api/notifications/{event_id}/assign")
+async def assign_escalation_endpoint(event_id: str, current_user: dict = Depends(get_current_user)):
+    from database.session import AsyncSessionLocal
+    from database.models.general import NotificationEvent
+    from database.models.chat import Conversation
+    
+    async with AsyncSessionLocal() as session:
+        event = await session.get(NotificationEvent, event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Notification event not found")
+            
+        # Verify tenant isolation
+        if event.business_id != current_user.get("business_id"):
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        # Acknowledge event
+        event.status = "acknowledged"
+        event.acknowledged_at = datetime.utcnow()
+        event.acknowledged_by = current_user.get("id")
+        
+        # Assign conversation
+        if event.conversation_id:
+            convo = await session.get(Conversation, event.conversation_id)
+            if convo:
+                convo.assigned_agent_id = current_user.get("id")
+                convo.mode = "human" # Assign to human
+                session.add(convo)
+                
+        await session.commit()
+        return {"status": "success", "message": "Conversation assigned and notification acknowledged"}
 
 @app.get("/api/whatsapp/config")
 async def get_whatsapp_config_endpoint(business_id: str):
@@ -1471,9 +1801,9 @@ async def web_chat(body: WebMessage):
         }
         
         # 3.1 Fire and Forget Workflow Trigger
-        executions = await workflow_engine.trigger_workflow(real_business_id, "message_created", trigger_data)
+        executions, takes_over_chat = await workflow_engine.trigger_workflow(real_business_id, "message_created", trigger_data)
         
-        if executions:
+        if executions and takes_over_chat:
             return {"reply": None, "status": "workflow_processing", "executions": executions}
         
         # 3.2 Dynamic Context injection (Scheduling)
@@ -1884,9 +2214,37 @@ async def web_chat(body: WebMessage):
                     logger.error(f"Failed to write booking debug file: {write_err}")
                 ai_reply = "I encountered an error processing the booking. Please try again or contact support."
 
+        # 5.3 Parse HOTEL_RESERVATION action
+        hotel_res_match = re.search(r'\[ACTION:\s*HOTEL_RESERVATION\s*\|\s*(?P<json>\{.*?\})\]', ai_reply, re.IGNORECASE | re.DOTALL)
+        if hotel_res_match:
+            try:
+                res_json_str = hotel_res_match.group('json').strip()
+                res_json_str = re.sub(r'^```(?:json)?\s*', '', res_json_str)
+                res_json_str = re.sub(r'\s*```$', '', res_json_str).strip()
+                reservation_data = json.loads(res_json_str)
+
+                cust_phone = None
+                cust_email = None
+                if lead_obj:
+                    cust_phone = getattr(lead_obj, 'phone', None)
+                    cust_email = getattr(lead_obj, 'email', None)
+
+                from services.hotel_reservation_service import hotel_reservation_service
+                await hotel_reservation_service.create_reservation_from_ai(
+                    business_id=real_business_id,
+                    reservation_data=reservation_data,
+                    customer_phone=cust_phone,
+                    customer_email=cust_email,
+                    platform="web"
+                )
+                logger.info(f"[Chat] Processed Hotel Reservation for guest {reservation_data.get('guest_name')} (Web User {body.user_id})")
+                ai_reply = ai_reply.replace(hotel_res_match.group(0), "").strip()
+            except Exception as res_err:
+                logger.error(f"[Chat] Error parsing hotel reservation action: {res_err}")
+
         # Final cleanup of any remaining internal markers
-        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply).strip()
-        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply).strip()
+        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
+        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
 
         await store_message(real_business_id, body.user_id, ai_reply, "bot", platform="web", intent=detected_intent, sentiment=sentiment)
         

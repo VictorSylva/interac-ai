@@ -41,6 +41,9 @@ Database Schema Guide:
 - entities (id, entity_type, entity_identifier, risk_score, status)
 - relationships (id, source_entity_id, target_entity_id, relationship_type, confidence_score)
 - observations (id, source_system, entity_type, entity_id, location, confidence, severity)
+- ba_sessions (id, business_id, visitor_id, referrer, utm_source, utm_medium, utm_campaign, device, browser, os, country, start_time, end_time, duration_seconds, is_bounce, page_views_count)
+- ba_events (id, business_id, session_id, event_type, path, offer_id, funnel_id, element_id, element_class, element_text, properties, timestamp)
+- ba_aggregates (id, business_id, date, metric_name, metric_value, dimension_name, dimension_value, created_at)
 
 Format your responses strictly using this ReAct template:
 Thought: Describe your thinking about what to do next.

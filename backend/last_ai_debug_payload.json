@@ -9,7 +9,7 @@
     },
     {
       "role": "user",
-      "content": "\n        Analyze this funnel bottleneck and suggest one specific optimization.\n        PATH: /dashboard\n        DROP-OFF COUNT: 2\n        \n        Suggest a specific UI or content change to reduce friction at this stage. (Max 2 sentences)\n        "
+      "content": "\n        Analyze this funnel bottleneck and suggest one specific optimization.\n        PATH: /superadmin\n        DROP-OFF COUNT: 1\n        \n        Suggest a specific UI or content change to reduce friction at this stage. (Max 2 sentences)\n        "
     }
   ]
 }

@@ -10,5 +10,10 @@ from . import entity_routes
 from . import observation_routes
 from . import module_routes
 from . import copilot_fallback_routes
+from . import entitlement_routes
+from . import hotel_routes
+from . import hospital_routes
+from . import retail_routes
+from . import education_routes
 
 

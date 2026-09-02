@@ -473,9 +473,10 @@ async def get_conversation_messages(business_id: str, user_id: str, limit: int =
 # --- Configuration Lookups ---
 
 async def get_whatsapp_config(business_id: str):
+    real_business_id = await resolve_business_id(business_id)
     async with AsyncSessionLocal() as session:
         try:
-            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == business_id)
+            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == real_business_id)
             result = await session.execute(stmt)
             config = result.scalar_one_or_none()
             if not config: return None
@@ -1203,9 +1204,10 @@ async def assign_agent(business_id: str, target_id: str, agent_id: str, target_t
 # --- WhatsApp Configuration ---
 
 async def get_whatsapp_config(business_id: str):
+    real_business_id = await resolve_business_id(business_id)
     async with AsyncSessionLocal() as session:
         try:
-            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == business_id)
+            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == real_business_id)
             result = await session.execute(stmt)
             config = result.scalar_one_or_none()
             
@@ -1225,9 +1227,10 @@ async def get_whatsapp_config(business_id: str):
             return None
 
 async def update_whatsapp_config(business_id: str, data: dict):
+    real_business_id = await resolve_business_id(business_id)
     async with AsyncSessionLocal() as session:
         try:
-            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == business_id)
+            stmt = select(BusinessWhatsAppConfig).where(BusinessWhatsAppConfig.business_id == real_business_id)
             result = await session.execute(stmt)
             config = result.scalar_one_or_none()
             
@@ -1242,7 +1245,7 @@ async def update_whatsapp_config(business_id: str, data: dict):
                     setattr(config, k, v)
                 config.updated_at = datetime.utcnow()
             else:
-                config = BusinessWhatsAppConfig(business_id=business_id, **data)
+                config = BusinessWhatsAppConfig(business_id=real_business_id, **data)
                 session.add(config)
             
             await session.commit()

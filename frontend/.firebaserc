@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "interacai-staging"
+    "default": "interac-ai"
   },
   "targets": {},
   "etags": {}

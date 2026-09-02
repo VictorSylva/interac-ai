@@ -128,6 +128,16 @@ async def generate_response(user_message: str, conversation_history: list = None
             # Fallback to provided or default prompt if resolution fails
             pass
 
+    # Inject Hotel Room Directory & Availability if applicable and not already included
+    if business_id and "HOTEL ROOMS DIRECTORY" not in (system_instruction or ""):
+        try:
+            from services.hotel_reservation_service import hotel_reservation_service
+            hotel_rooms_context = await hotel_reservation_service.get_rooms_context_for_ai(business_id)
+            if hotel_rooms_context:
+                system_instruction = f"{system_instruction}\n\n{hotel_rooms_context}" if system_instruction else hotel_rooms_context
+        except Exception as e:
+            logger.error(f"Error appending hotel rooms context: {e}")
+
     # Enforce plain text output with no raw markdown headers/bolding in chats
     format_instruction = "IMPORTANT: Do NOT use markdown headers (e.g. #, ##, ###, ####) or markdown bolding/italics (e.g. **). Instead, format headers using normal text in UPPERCASE, and use plain text spacing and dashes for lists."
     if system_instruction:

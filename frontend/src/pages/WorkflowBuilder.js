@@ -261,14 +261,49 @@ export default function WorkflowBuilder() {
               <select
                 value={triggerType}
                 onChange={(e) => setTriggerType(e.target.value)}
-                className="border-gray-200 rounded text-xs py-0.5 bg-gray-50 font-bold text-navy"
+                className="border-gray-200 rounded text-xs py-0.5 bg-gray-50 font-bold text-navy max-w-[220px]"
               >
-                <option value="keyword_detected">💬 Keyword Detection</option>
-                <option value="intent_detected">🧠 AI Intent Match</option>
-                <option value="ai_sentiment">🎭 Sentiment Analysis</option>
-                <option value="sales_trigger">💰 Sales & eCommerce</option>
-                <option value="intelligence_event">👁️ Physical Intelligence Event</option>
-                <option value="manual">🔘 Manual / API</option>
+                <optgroup label="💬 Customer & Chat Triggers">
+                  <option value="keyword_detected">💬 Keyword Detection</option>
+                  <option value="intent_detected">🧠 AI Intent Match</option>
+                  <option value="ai_sentiment">🎭 Sentiment Analysis</option>
+                  <option value="message_created">📥 Any New Message</option>
+                </optgroup>
+                <optgroup label="🏨 Hotel & Hospitality">
+                  <option value="reservation_booked">🏨 New Reservation</option>
+                  <option value="guest_checkin">🏨 Guest Check-in</option>
+                  <option value="guest_checkout">🏨 Guest Checkout</option>
+                  <option value="maintenance_reported">🔧 Room Maintenance Reported</option>
+                </optgroup>
+                <optgroup label="🛍️ Retail & Supermarket">
+                  <option value="sale_completed">🛍️ POS Sale Completed</option>
+                  <option value="inventory_adjusted">📦 Inventory / Stock Adjusted</option>
+                  <option value="store_created">🏪 Store Branch Created</option>
+                </optgroup>
+                <optgroup label="🎓 School & Education">
+                  <option value="admission_application">🎓 Admission Application</option>
+                  <option value="admission_approved">🎓 Admission Approved</option>
+                  <option value="student_onboarded">🎓 Student Registration</option>
+                  <option value="attendance_checkin">📋 Attendance Check-in / Absence</option>
+                  <option value="exam_completed">📝 Exam Completed</option>
+                  <option value="fee_paid">💳 Tuition / Fee Payment</option>
+                  <option value="clinic_visit">🏥 Student Clinic Visit</option>
+                  <option value="security_alert">🚨 Campus Security Alert</option>
+                </optgroup>
+                <optgroup label="🏥 Hospital & Healthcare">
+                  <option value="appointment_booked">🏥 Appointment Booked</option>
+                </optgroup>
+                <optgroup label="💰 Sales & Commerce">
+                  <option value="sales_trigger">💰 Live Sales / Cart Trigger</option>
+                  <option value="payment_received">💳 Payment Received</option>
+                </optgroup>
+                <optgroup label="👁️ Physical Intelligence">
+                  <option value="intelligence_event">👁️ ARGUS Surveillance Event</option>
+                </optgroup>
+                <optgroup label="⚙️ Custom / Manual">
+                  <option value="manual">🔘 Manual / API Trigger</option>
+                  <option value="custom">⚙️ Custom Trigger String</option>
+                </optgroup>
               </select>
               
               {(triggerType === "keyword_detected" || triggerType === "keyword") && (
@@ -337,6 +372,17 @@ export default function WorkflowBuilder() {
                   />
                 </div>
               )}
+
+              {triggerType === "custom" && (
+                <input
+                  value={triggerConfig.custom_event || ""}
+                  onChange={(e) =>
+                    setTriggerConfig({ custom_event: e.target.value })
+                  }
+                  placeholder="custom_event_name"
+                  className="border border-gray-200 rounded px-2 py-0.5 text-xs bg-navy/5 focus:bg-white transition-all w-48"
+                />
+              )}
             </div>
 
           </div>
@@ -394,6 +440,12 @@ export default function WorkflowBuilder() {
             💬 Send Msg
           </button>
           <button
+            onClick={() => addNode("action", "Notify Agent (WhatsApp)")}
+            className="text-sm bg-white border p-2 rounded shadow-sm hover:border-navy text-left"
+          >
+            🟢 Notify Agent (WhatsApp)
+          </button>
+          <button
             onClick={() => addNode("action", "Send Email")}
             className="text-sm bg-white border p-2 rounded shadow-sm hover:border-navy text-left"
           >
@@ -410,6 +462,24 @@ export default function WorkflowBuilder() {
             className="text-sm bg-white border p-2 rounded shadow-sm hover:border-navy text-left"
           >
             👤 Assign Agent
+          </button>
+          <button
+            onClick={() => addNode("action", "Route to Department")}
+            className="text-sm bg-white border p-2 rounded shadow-sm hover:border-blue-500 text-left"
+          >
+            🏢 Route to Dept
+          </button>
+          <button
+            onClick={() => addNode("action", "Block Room")}
+            className="text-sm bg-white border p-2 rounded shadow-sm hover:border-red-500 text-left"
+          >
+            🚫 Block Room
+          </button>
+          <button
+            onClick={() => addNode("action", "Record Observation")}
+            className="text-sm bg-white border p-2 rounded shadow-sm hover:border-purple-500 text-left"
+          >
+            📡 Record Observation
           </button>
           <button
             onClick={() => addNode("appointment_booking", "Book Appointment")}
@@ -601,17 +671,45 @@ export default function WorkflowBuilder() {
                     {type === "action" &&
                       node.data.label === "Send Email" && (
                         <>
-                          <InputField
-                            label="Recipient Email"
-                            value={node.data.config.to}
-                            onChange={(v) => updateNodeConfig("to", v)}
-                            placeholder="{{customer_email}}"
-                          />
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Recipient Type
+                            </label>
+                            <select
+                              value={node.data.config.recipient_type || "fixed"}
+                              onChange={(e) => updateNodeConfig("recipient_type", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none mb-3"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "send_email")
+                              }
+                            >
+                              <option value="fixed">Fixed Email (Static)</option>
+                              <option value="dynamic_routing">Dynamic Department Routing</option>
+                              <option value="assigned_agent">Assigned Conversation Agent</option>
+                              <option value="dept_primary">Department Primary Agent</option>
+                              <option value="dept_phone">Department Configured Email</option>
+                              <option value="business_admin">Business Administrator / Owner</option>
+                            </select>
+                          </div>
+                          {(node.data.config.recipient_type || "fixed") === "fixed" && (
+                            <InputField
+                              label="Recipient Email"
+                              value={node.data.config.to || ""}
+                              onChange={(v) => updateNodeConfig("to", v)}
+                              placeholder="{{customer_email}}"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "send_email")
+                              }
+                            />
+                          )}
                           <InputField
                             label="Subject"
-                            value={node.data.config.subject}
+                            value={node.data.config.subject || ""}
                             onChange={(v) => updateNodeConfig("subject", v)}
                             placeholder="Your Order Fulfillment"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "send_email")
+                            }
                           />
                           <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
@@ -629,6 +727,62 @@ export default function WorkflowBuilder() {
                               }
                             />
                             <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold tracking-tighter">Available tags: {"{{customer_email}}"}, {"{{offer_title}}"}, {"{{amount}}"}</p>
+                          </div>
+                        </>
+                      )}
+
+                    {type === "action" &&
+                      node.data.label === "Notify Agent (WhatsApp)" && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Recipient Type
+                            </label>
+                            <select
+                              value={node.data.config.recipient_type || "fixed"}
+                              onChange={(e) => updateNodeConfig("recipient_type", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none mb-3"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            >
+                              <option value="fixed">Fixed Number (Static)</option>
+                              <option value="dynamic_routing">Dynamic Department Routing</option>
+                              <option value="assigned_agent">Assigned Conversation Agent</option>
+                              <option value="dept_primary">Department Primary Agent</option>
+                              <option value="dept_phone">Department Phone Number</option>
+                              <option value="business_admin">Business Administrator / Owner</option>
+                            </select>
+                          </div>
+                          {(node.data.config.recipient_type || "fixed") === "fixed" && (
+                            <InputField
+                              label="Agent Phone Number (with Country Code)"
+                              value={node.data.config.to_number || ""}
+                              onChange={(v) => updateNodeConfig("to_number", v)}
+                              placeholder="e.g. 2348101234567"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            />
+                          )}
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Alert Template
+                            </label>
+                            <textarea
+                              value={node.data.config.template || ""}
+                              onChange={(e) =>
+                                updateNodeConfig("template", e.target.value)
+                              }
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm h-32"
+                              placeholder="Ongoing chat started! Platform: {{trigger.platform}}, Message: {{trigger.message_body}}"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "notify_agent_whatsapp")
+                              }
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1 uppercase font-bold tracking-tighter">
+                              Available tags: {"{{trigger.platform}}"}, {"{{trigger.message_body}}"}, {"{{trigger.from_number}}"}, {"{{trigger.user_id}}"}
+                            </p>
                           </div>
                         </>
                       )}
@@ -670,6 +824,119 @@ export default function WorkflowBuilder() {
                               updateNodeConfig("action_type", "assign_agent")
                             }
                           ></div>
+                        </>
+                      )}
+
+                    {type === "action" &&
+                      node.data.label === "Route to Department" && (
+                        <>
+                          <div className="mb-3">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Target Department
+                            </label>
+                            <select
+                              value={node.data.config.department || "frontdesk"}
+                              onChange={(e) => updateNodeConfig("department", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "route_to_department")
+                              }
+                            >
+                              <option value="frontdesk">Front Desk / Reception</option>
+                              <option value="housekeeping">Housekeeping</option>
+                              <option value="maintenance">Maintenance & Engineering</option>
+                              <option value="security">Security & Loss Prevention</option>
+                              <option value="sales">Sales & Bookings</option>
+                              <option value="support">Customer Support</option>
+                              <option value="accounts">Accounts & Finance</option>
+                              <option value="store">Store & Inventory</option>
+                              <option value="restaurant">Restaurant & Kitchen</option>
+                              <option value="clinical">Clinical & Nursing</option>
+                              <option value="pharmacy">Pharmacy</option>
+                              <option value="teachers">Academic Staff</option>
+                              <option value="general">General Operations</option>
+                            </select>
+                          </div>
+                          <p className="text-[10px] text-gray-400">
+                            Routes active customer conversation or task to this department queue.
+                          </p>
+                        </>
+                      )}
+
+                    {type === "action" &&
+                      node.data.label === "Block Room" && (
+                        <>
+                          <InputField
+                            label="Room Number Variable"
+                            value={node.data.config.room_number || "{{trigger.room_number}}"}
+                            onChange={(v) => updateNodeConfig("room_number", v)}
+                            placeholder="{{trigger.room_number}}"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "block_room")
+                            }
+                          />
+                          <p className="text-[10px] text-gray-400">
+                            Sets room status to OUT_OF_SERVICE in the Hotel Rooms directory.
+                          </p>
+                        </>
+                      )}
+
+                    {type === "action" &&
+                      node.data.label === "Record Observation" && (
+                        <>
+                          <InputField
+                            label="Observation Type"
+                            value={node.data.config.observation_type || "workflow_signal"}
+                            onChange={(v) => updateNodeConfig("observation_type", v)}
+                            placeholder="e.g. guest_checkout, low_stock"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "record_observation")
+                            }
+                          />
+                          <InputField
+                            label="Source Channel"
+                            value={node.data.config.source_channel || "workflow"}
+                            onChange={(v) => updateNodeConfig("source_channel", v)}
+                            placeholder="e.g. frontdesk, pos, cctv, sensor"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "record_observation")
+                            }
+                          />
+                          <div className="mb-3">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                              Severity
+                            </label>
+                            <select
+                              value={node.data.config.severity || "INFO"}
+                              onChange={(e) => updateNodeConfig("severity", e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+                              onFocus={() =>
+                                updateNodeConfig("action_type", "record_observation")
+                              }
+                            >
+                              <option value="INFO">INFO</option>
+                              <option value="WARNING">WARNING</option>
+                              <option value="CRITICAL">CRITICAL</option>
+                            </select>
+                          </div>
+                          <InputField
+                            label="Location Label"
+                            value={node.data.config.location_label || "{{trigger.room_number}}"}
+                            onChange={(v) => updateNodeConfig("location_label", v)}
+                            placeholder="e.g. Room 204, Store Main Floor"
+                            onFocus={() =>
+                              updateNodeConfig("action_type", "record_observation")
+                            }
+                          />
+                          <JsonInput
+                            label="Payload (JSON)"
+                            value={node.data.config.payload}
+                            onChange={(v) => updateNodeConfig("payload", v)}
+                            placeholder='{"key": "{{value}}"}'
+                          />
+                          <p className="text-[10px] text-gray-400">
+                            Normalized observation is dispatched to the Observation Bus and ARGUS Core.
+                          </p>
                         </>
                       )}
 

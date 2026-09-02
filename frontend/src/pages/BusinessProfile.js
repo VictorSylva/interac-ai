@@ -34,8 +34,32 @@ export default function BusinessProfile() {
   const [inviteRole, setInviteRole] = useState("agent");
   const [inviteDept, setInviteDept] = useState("general");
   const [inviteProp, setInviteProp] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
   const [newPropName, setNewPropName] = useState("");
   const [activeSettingsTab, setActiveSettingsTab] = useState("profile");
+  const [editingUser, setEditingUser] = useState(null);
+  const [saveSuccessDept, setSaveSuccessDept] = useState(null);
+  const [savingDept, setSavingDept] = useState(null);
+
+  const getAuthHeaders = (includeJson = true) => {
+    let token = currentUser?.token;
+    if (!token) {
+      try {
+        const stored = localStorage.getItem('interact_user');
+        if (stored) {
+          token = JSON.parse(stored)?.token;
+        }
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const handleUpdateProfile = (dept, role) => {
     setProfileSaved(false);
@@ -50,8 +74,9 @@ export default function BusinessProfile() {
 
   const fetchUsers = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/users`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/users`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -63,8 +88,9 @@ export default function BusinessProfile() {
 
   const fetchInvitations = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invitations`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/invitations`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setInvites(data);
@@ -76,8 +102,9 @@ export default function BusinessProfile() {
 
   const fetchProperties = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/properties`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/properties`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setProperties(data);
@@ -89,8 +116,9 @@ export default function BusinessProfile() {
 
   const fetchAuditLogs = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/login-history`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/login-history`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setLoginLogs(data);
@@ -109,6 +137,10 @@ export default function BusinessProfile() {
       fetchProperties();
     } else if (activeSettingsTab === "audit") {
       fetchAuditLogs();
+    } else if (activeSettingsTab === "routing") {
+      fetchRoutingConfigs();
+      fetchUsers();
+      fetchProperties();
     }
   }, [activeSettingsTab]);
 
@@ -116,20 +148,21 @@ export default function BusinessProfile() {
     e.preventDefault();
     if (!inviteEmail) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invite`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/invite`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           email: inviteEmail,
           role: inviteRole,
           department: inviteDept,
-          property_id: inviteProp || null
+          property_id: inviteProp || null,
+          phone: invitePhone || null
         })
       });
       if (res.ok) {
         alert("Employee invitation email sent!");
         setInviteEmail("");
+        setInvitePhone("");
         fetchInvitations();
       } else {
         const err = await res.json();
@@ -143,9 +176,9 @@ export default function BusinessProfile() {
   const handleCancelInvite = async (inviteId) => {
     if (!window.confirm("Cancel this invitation?")) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invitations/${inviteId}/cancel`, {
-        method: "POST"
+      const res = await fetch(`${API_BASE_URL}/api/auth/invitations/${inviteId}/cancel`, {
+        method: "POST",
+        headers: getAuthHeaders(true)
       });
       if (res.ok) {
         alert("Invitation cancelled!");
@@ -160,10 +193,9 @@ export default function BusinessProfile() {
     const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} this employee account?`)) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/users/${userId}/status`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/users/${userId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ status: newStatus })
       });
       if (res.ok) {
@@ -178,14 +210,128 @@ export default function BusinessProfile() {
     }
   };
 
+  const handleSaveUserEdit = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+        method: "PUT",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({
+          user_id: editingUser.id,
+          role: editingUser.role,
+          department: editingUser.department,
+          property_id: editingUser.property_id || null,
+          phone: editingUser.phone || "",
+          receive_operational_alerts: editingUser.receive_operational_alerts,
+          notification_preference: editingUser.notification_preference || "all"
+        })
+      });
+      if (res.ok) {
+        alert("Employee profile updated successfully!");
+        setEditingUser(null);
+        fetchUsers();
+      } else {
+        const err = await res.json();
+        alert(`Failed to save: ${err.detail || 'Unknown error'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error saving employee profile.");
+    }
+  };
+
+  const getDefaultDeptConfig = (dept) => ({
+    department: dept,
+    display_name: dept.charAt(0).toUpperCase() + dept.slice(1),
+    notification_phone: "",
+    notification_email: "",
+    primary_user_id: "",
+    routing_enabled: true,
+    whatsapp_enabled: true,
+    email_enabled: true,
+    escalation_enabled: false,
+    escalation_timeout_minutes: 30,
+    escalation_user_id: "",
+    escalation_level2_user_id: "",
+    property_id: ""
+  });
+
+  const [routingConfigs, setRoutingConfigs] = useState([]);
+
+  const fetchRoutingConfigs = async () => {
+    try {
+      const businessId = currentUser?.business_id || "";
+      const res = await fetch(`${API_BASE_URL}/api/business/routing-configs?business_id=${encodeURIComponent(businessId)}`, {
+        headers: getAuthHeaders(true)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoutingConfigs(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.error("Error fetching routing configs:", e);
+    }
+  };
+
+  const handleUpdateRoutingConfigState = (dept, field, value) => {
+    setRoutingConfigs((prev) => {
+      const idx = prev.findIndex((c) => c.department === dept);
+      if (idx !== -1) {
+        const copy = [...prev];
+        copy[idx] = { ...getDefaultDeptConfig(dept), ...copy[idx], [field]: value };
+        return copy;
+      } else {
+        return [...prev, { ...getDefaultDeptConfig(dept), [field]: value }];
+      }
+    });
+  };
+
+  const handleSaveRoutingConfig = async (config, notify = true) => {
+    if (!config?.department) return;
+    setSavingDept(config.department);
+    try {
+      const fullConfig = { 
+        ...getDefaultDeptConfig(config.department), 
+        ...config,
+        business_id: currentUser?.business_id 
+      };
+      const res = await fetch(`${API_BASE_URL}/api/business/routing-configs`, {
+        method: "POST",
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(fullConfig)
+      });
+      if (res.ok) {
+        await fetchRoutingConfigs();
+        setSaveSuccessDept(config.department);
+        setTimeout(() => setSaveSuccessDept(null), 3500);
+        if (notify) {
+          alert(`${config.department.toUpperCase()} routing configuration saved successfully!`);
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error("Error saving routing config:", err);
+        if (notify) {
+          alert(`Failed to save routing: ${err.detail || 'Server error'}`);
+        }
+      }
+    } catch (e) {
+      console.error("Error saving routing config:", e);
+      if (notify) {
+        alert("Error saving routing configuration.");
+      }
+    } finally {
+      setSavingDept(null);
+    }
+  };
+
   const handleCreateProperty = async (e) => {
     e.preventDefault();
     if (!newPropName) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/properties`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/properties`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ name: newPropName })
       });
       if (res.ok) {
@@ -209,41 +355,47 @@ export default function BusinessProfile() {
     location: "",
     hours: "",
     auto_escalate_on_keyword: false,
+    notification_cooldown_minutes: 30,
     departments: ["sales", "support", "billing", "general"],
   });
 
   useEffect(() => {
     fetchProfile();
     fetchKnowledge();
+    if (currentUser?.business_id) {
+      fetchRoutingConfigs();
+      fetchUsers();
+      fetchProperties();
+    }
   }, [currentUser]);
 
   const fetchKnowledge = async () => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
       const res = await fetch(
-        `${apiUrl}/api/knowledge?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge?business_id=${encodeURIComponent(businessId)}`,
+        { headers: getAuthHeaders(true) }
       );
       if (!res.ok) throw new Error("Failed to fetch knowledge");
       const data = await res.json();
       setKnowledgeDocs(Array.isArray(data) ? data : []);
     } catch (error) {
+      console.error("Error fetching knowledge:", error);
     }
   };
 
   const fetchProfile = async () => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const res = await fetch(
-        `${apiUrl}/api/business-profile?business_id=${encodeURIComponent(
+        `${API_BASE_URL}/api/business-profile?business_id=${encodeURIComponent(
           businessId,
         )}`,
-        { signal: controller.signal },
+        { signal: controller.signal, headers: getAuthHeaders(true) },
       );
       clearTimeout(timeoutId);
 
@@ -255,6 +407,7 @@ export default function BusinessProfile() {
       setLoading(false);
     } catch (error) {
       if (error.name !== 'AbortError') {
+        console.error("Error fetching profile:", error);
       }
       setLoading(false);
     }
@@ -271,10 +424,10 @@ export default function BusinessProfile() {
       currentUser?.business_id || currentUser?.email || "default";
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/business-profile`, {
+      // 1. Persist main business profile
+      const res = await fetch(`${API_BASE_URL}/api/business-profile`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ ...form, business_id: businessId }),
       });
 
@@ -283,12 +436,37 @@ export default function BusinessProfile() {
         throw new Error(result.detail || "Save failed");
       }
 
-      alert("Profile saved successfully!");
+      // 2. Persist all department routing configurations atomically
+      if (form.departments && form.departments.length > 0) {
+        const payloadConfigs = form.departments.map((dept) => {
+          const existing = routingConfigs.find((c) => c.department === dept);
+          return {
+            ...getDefaultDeptConfig(dept),
+            ...(existing || {}),
+            business_id: businessId
+          };
+        });
+
+        const bulkRes = await fetch(`${API_BASE_URL}/api/business/routing-configs/bulk`, {
+          method: "POST",
+          headers: getAuthHeaders(true),
+          body: JSON.stringify({
+            business_id: businessId,
+            configs: payloadConfigs
+          })
+        });
+
+        if (bulkRes.ok) {
+          await fetchRoutingConfigs();
+        }
+      }
+
+      alert("All changes saved successfully!");
     } catch (error) {
       const detail = error.message;
       const displayError =
         typeof detail === "object" ? JSON.stringify(detail) : detail;
-      alert(`Failed to save profile: ${displayError}`);
+      alert(`Failed to save: ${displayError}`);
     } finally {
       setSaving(false);
     }
@@ -304,10 +482,9 @@ export default function BusinessProfile() {
     const businessId =
       currentUser?.business_id || currentUser?.email || "default";
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/train/${encodeURIComponent(businessId)}`,
-        { method: "POST" },
+        `${API_BASE_URL}/api/train/${encodeURIComponent(businessId)}`,
+        { method: "POST", headers: getAuthHeaders(true) },
       );
       if (!res.ok) throw new Error("Training failed on server");
       const data = await res.json();
@@ -377,6 +554,13 @@ export default function BusinessProfile() {
               </button>
               <button
                 type="button"
+                onClick={() => setActiveSettingsTab("routing")}
+                className={`pb-3 px-1 text-sm font-bold border-b-2 transition-colors ${activeSettingsTab === "routing" ? "border-navy text-navy" : "border-transparent text-grey-500 hover:text-navy"}`}
+              >
+                Department Routing
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveSettingsTab("properties")}
                 className={`pb-3 px-1 text-sm font-bold border-b-2 transition-colors ${activeSettingsTab === "properties" ? "border-navy text-navy" : "border-transparent text-grey-500 hover:text-navy"}`}
               >
@@ -413,12 +597,9 @@ export default function BusinessProfile() {
                       onChange={(e) => handleUpdateProfile(e.target.value, activeRole)}
                       className="w-full p-2.5 border border-slate-300 rounded-lg text-slate-800 bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="general">General (Full Base Access)</option>
-                      <option value="reception">Reception / Front Desk (Hotels, Hospital EHR)</option>
-                      <option value="security">Security & Surveillance (ALPR, CCTV, Guard Patrols)</option>
-                      <option value="finance">Finance & Billing (POS, Invoices, IRS Tax Audits)</option>
-                      <option value="counselor">Counselor (Education Attendance Risk)</option>
-                      <option value="operator">Operator (Manufacturing Shopfloor OEE)</option>
+                      {form.departments?.map((dept) => (
+                        <option key={dept} value={dept}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
@@ -563,20 +744,35 @@ export default function BusinessProfile() {
                 </p>
               </div>
               
-              <div className="md:col-span-2 flex items-center gap-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <input
-                  type="checkbox"
-                  id="auto_escalate_on_keyword"
-                  name="auto_escalate_on_keyword"
-                  checked={form.auto_escalate_on_keyword}
-                  onChange={(e) => setForm({ ...form, auto_escalate_on_keyword: e.target.checked })}
-                  className="w-4 h-4 text-navy rounded border-grey-300 focus:ring-navy"
-                />
-                <label htmlFor="auto_escalate_on_keyword" className="flex-1">
-                  <span className="block text-sm font-bold text-navy">Auto-escalate on handover keywords</span>
-                  <span className="block text-xs text-navy/70">Automatically transfer to human if user says "human", "agent", etc.</span>
-                </label>
-                <div className="text-[10px] bg-navy text-white px-2 py-0.5 rounded font-bold uppercase">PRO</div>
+              <div className="md:col-span-2 flex flex-col gap-1.5 p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="auto_escalate_on_keyword"
+                    name="auto_escalate_on_keyword"
+                    checked={form.auto_escalate_on_keyword}
+                    onChange={(e) => setForm({ ...form, auto_escalate_on_keyword: e.target.checked })}
+                    className="w-4 h-4 text-navy rounded border-grey-300 focus:ring-navy"
+                  />
+                  <label htmlFor="auto_escalate_on_keyword" className="flex-1">
+                    <span className="block text-sm font-bold text-navy">Auto-escalate on handover keywords</span>
+                    <span className="block text-xs text-navy/70">Automatically transfer to human if user says "human", "agent", etc.</span>
+                  </label>
+                  <div className="text-[10px] bg-navy text-white px-2 py-0.5 rounded font-bold uppercase">PRO</div>
+                </div>
+                <div className="mt-3 border-t border-blue-200/50 pt-3 flex flex-col gap-1">
+                  <label className="text-sm font-bold text-navy">
+                    Notification Cooldown (Minutes)
+                  </label>
+                  <input
+                    type="number"
+                    value={form.notification_cooldown_minutes || 30}
+                    onChange={(e) => setForm({ ...form, notification_cooldown_minutes: parseInt(e.target.value) || 30 })}
+                    className="w-32 text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                    placeholder="30"
+                  />
+                  <span className="text-[10px] text-navy/60">Deduplicates agent alert notifications within this timeframe.</span>
+                </div>
               </div>
             </div>
           </Section>
@@ -713,7 +909,7 @@ export default function BusinessProfile() {
             {/* Send Invitation Form */}
             <Section title="Invite New Employee" icon={Users}>
               <form onSubmit={handleSendInvite} className="bg-grey-50 p-6 rounded-2xl border border-grey-light space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Email Address</label>
                     <input
@@ -732,13 +928,10 @@ export default function BusinessProfile() {
                       onChange={(e) => setInviteRole(e.target.value)}
                       className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="receptionist">Receptionist / Frontdesk</option>
-                      <option value="room_service">Room Service / Housekeeping</option>
-                      <option value="restaurant_staff">Restaurant Server / Kitchen</option>
-                      <option value="security_guard">Security Guard</option>
-                      <option value="accounts_manager">Finance / Auditor</option>
-                      <option value="general_manager">General Manager</option>
-                      <option value="admin">Administrator</option>
+                      <option value="admin">Administrator / Manager</option>
+                      <option value="support_agent">Supervisor / Team Lead</option>
+                      <option value="agent">Staff / Specialist / Agent</option>
+                      <option value="viewer">Viewer / Auditor (Read-Only)</option>
                     </select>
                   </div>
                   <div>
@@ -748,16 +941,23 @@ export default function BusinessProfile() {
                       onChange={(e) => setInviteDept(e.target.value)}
                       className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm bg-white focus:outline-none focus:border-navy"
                     >
-                      <option value="general">General</option>
-                      <option value="reception">Reception / Front desk</option>
-                      <option value="security">Security & Patrol</option>
-                      <option value="finance">Finance & Accounts</option>
-                      <option value="restaurant">Restaurant & Kitchen</option>
-                      <option value="housekeeping">Housekeeping</option>
+                      {form.departments?.map((dept) => (
+                        <option key={dept} value={dept}>{dept.charAt(0).toUpperCase() + dept.slice(1)}</option>
+                      ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Assign Branch/Hotel (Optional)</label>
+                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">WhatsApp Phone (Optional)</label>
+                    <input
+                      type="text"
+                      value={invitePhone}
+                      onChange={(e) => setInvitePhone(e.target.value)}
+                      placeholder="+234 813 160 8061"
+                      className="w-full p-2 border border-grey-medium rounded-lg text-navy text-sm focus:outline-none focus:border-navy"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-navy mb-1 uppercase tracking-wider">Assign Branch (Optional)</label>
                     <select
                       value={inviteProp}
                       onChange={(e) => setInviteProp(e.target.value)}
@@ -840,7 +1040,7 @@ export default function BusinessProfile() {
                   <table className="w-full text-left text-sm text-grey-700">
                     <thead>
                       <tr className="bg-grey-50 border-b border-grey-light text-navy font-bold text-xs uppercase tracking-wider">
-                        <th className="p-4">Employee</th>
+                        <th className="p-4">Employee / Alert Phone</th>
                         <th className="p-4">Role / Department</th>
                         <th className="p-4">Status</th>
                         <th className="p-4">Actions</th>
@@ -851,7 +1051,15 @@ export default function BusinessProfile() {
                         <tr key={u.id} className="border-b border-grey-light hover:bg-grey-50 transition-colors">
                           <td className="p-4">
                             <div className="font-semibold text-navy">{u.email}</div>
-                            <div className="text-xs text-grey-500">ID: {u.id}</div>
+                            {u.phone ? (
+                              <div className="text-xs text-emerald-700 font-medium flex items-center gap-1 mt-0.5">
+                                📱 {u.phone}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-amber-600 font-medium mt-0.5">
+                                ⚠️ No phone set
+                              </div>
+                            )}
                           </td>
                           <td className="p-4">
                             <div className="capitalize font-medium text-grey-800">{u.role}</div>
@@ -865,15 +1073,24 @@ export default function BusinessProfile() {
                             )}
                           </td>
                           <td className="p-4">
-                            {u.id !== currentUser.id && (
+                            <div className="flex items-center gap-3">
                               <button
                                 type="button"
-                                onClick={() => handleToggleUserStatus(u.id, u.status)}
-                                className={`font-bold text-xs px-3 py-1.5 rounded border transition-colors ${u.status === 'suspended' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}
+                                onClick={() => setEditingUser(u)}
+                                className="font-bold text-xs px-3 py-1.5 rounded border border-grey-light text-navy hover:bg-grey-50 transition-colors"
                               >
-                                {u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                                Edit Profile
                               </button>
-                            )}
+                              {u.id !== currentUser.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserStatus(u.id, u.status)}
+                                  className={`font-bold text-xs px-3 py-1.5 rounded border transition-colors ${u.status === 'suspended' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'}`}
+                                >
+                                  {u.status === 'suspended' ? 'Reactivate' : 'Suspend'}
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -886,6 +1103,262 @@ export default function BusinessProfile() {
                 )}
               </div>
             </Section>
+          </div>
+        )}
+
+        {activeSettingsTab === "routing" && (
+          <div className="space-y-6">
+            <div className="bg-white border border-grey-light rounded-xl shadow-sm p-6">
+              <div className="flex items-center space-x-3 mb-6">
+                <Zap className="h-6 w-6 text-navy" />
+                <div>
+                  <h2 className="text-lg font-bold text-navy">Department Routing & Notifications</h2>
+                  <p className="text-xs text-grey-500">Configure alert channels, primary contact agents, and escalation paths for each department.</p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {form.departments?.map((dept) => {
+                  const existingConfig = routingConfigs.find((c) => c.department === dept) || {};
+                  const config = {
+                    ...getDefaultDeptConfig(dept),
+                    ...existingConfig
+                  };
+
+                  const isConfigured = Boolean(config.notification_phone || config.notification_email || config.primary_user_id);
+
+                  return (
+                    <div key={dept} className="border border-grey-light rounded-xl p-6 bg-grey-50 space-y-4">
+                      <div className="flex items-center justify-between border-b border-grey-light pb-4">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-bold text-navy uppercase tracking-wider">{dept}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${config.routing_enabled && isConfigured ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                            {config.routing_enabled && isConfigured ? "Active" : "Not Configured / Inactive"}
+                          </span>
+                        </div>
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={config.routing_enabled !== false}
+                            onChange={(e) => {
+                              const updated = { ...config, routing_enabled: e.target.checked };
+                              handleUpdateRoutingConfigState(dept, "routing_enabled", e.target.checked);
+                              handleSaveRoutingConfig(updated);
+                            }}
+                            className="rounded text-navy border-grey-light focus:ring-navy"
+                          />
+                          <span className="text-xs font-bold text-navy uppercase">Routing Enabled</span>
+                        </label>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Column 1: Channels */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Alert Channels</h3>
+                          
+                          {/* WhatsApp Channel */}
+                          <div className="space-y-1.5">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={config.whatsapp_enabled !== false}
+                                onChange={(e) => {
+                                  const updated = { ...config, whatsapp_enabled: e.target.checked };
+                                  handleUpdateRoutingConfigState(dept, "whatsapp_enabled", e.target.checked);
+                                  handleSaveRoutingConfig(updated);
+                                }}
+                                className="rounded text-navy border-grey-light focus:ring-navy"
+                              />
+                              <span className="text-sm font-medium text-navy">WhatsApp Notification</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={config.notification_phone || ""}
+                              onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_phone", e.target.value)}
+                              onBlur={(e) => {
+                                const updated = { ...config, notification_phone: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "notification_phone", e.target.value);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
+                              placeholder="e.g. +2348131608061"
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            />
+                            <p className="text-[10px] text-grey-400">Department WhatsApp phone number.</p>
+                          </div>
+
+                          {/* Email Channel */}
+                          <div className="space-y-1.5 pt-2">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={config.email_enabled !== false}
+                                onChange={(e) => {
+                                  const updated = { ...config, email_enabled: e.target.checked };
+                                  handleUpdateRoutingConfigState(dept, "email_enabled", e.target.checked);
+                                  handleSaveRoutingConfig(updated, false);
+                                }}
+                                className="rounded text-navy border-grey-light focus:ring-navy"
+                              />
+                              <span className="text-sm font-medium text-navy">Email Notification</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={config.notification_email || ""}
+                              onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_email", e.target.value)}
+                              onBlur={(e) => {
+                                const updated = { ...config, notification_email: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "notification_email", e.target.value);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
+                              placeholder="e.g. sales@company.com"
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            />
+                            <p className="text-[10px] text-grey-400">Department alert email address.</p>
+                          </div>
+                        </div>
+
+                        {/* Column 2: Assignment */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Primary Assignment</h3>
+                          <div>
+                            <label className="block text-xs font-bold text-navy uppercase mb-1">Primary Department Agent</label>
+                            <select
+                              value={config.primary_user_id || ""}
+                              onChange={(e) => {
+                                const updated = { ...config, primary_user_id: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "primary_user_id", e.target.value);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
+                              className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                            >
+                              <option value="">-- Select Agent --</option>
+                              {users.filter(u => (u.department || "general") === dept || u.department === "general").map((u) => (
+                                <option key={u.id} value={u.id}>
+                                  {u.email} {u.phone ? `(${u.phone})` : "(No phone set)"}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-grey-400 mt-1">This agent is prioritized for new chats in this department.</p>
+                          </div>
+                          {properties.length > 0 && (
+                            <div>
+                              <label className="block text-xs font-bold text-navy uppercase mb-1">Branch / Property Context</label>
+                              <select
+                                value={config.property_id || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value || null;
+                                  const updated = { ...config, property_id: val };
+                                  handleUpdateRoutingConfigState(dept, "property_id", val);
+                                  handleSaveRoutingConfig(updated, false);
+                                }}
+                                className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                              >
+                                <option value="">-- All Properties --</option>
+                                {properties.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Column 3: Escalation */}
+                        <div className="space-y-4">
+                          <h3 className="text-xs font-bold text-grey-500 uppercase tracking-wider">Escalation Path</h3>
+                          <label className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(config.escalation_enabled)}
+                              onChange={(e) => {
+                                const updated = { ...config, escalation_enabled: e.target.checked };
+                                handleUpdateRoutingConfigState(dept, "escalation_enabled", e.target.checked);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
+                              className="rounded text-navy border-grey-light focus:ring-navy"
+                            />
+                            <span className="text-sm font-medium text-navy">Enable Auto-Escalation</span>
+                          </label>
+
+                          {config.escalation_enabled && (
+                            <div className="space-y-3 pt-2">
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Escalate After (Minutes)</label>
+                                <input
+                                  type="number"
+                                  value={config.escalation_timeout_minutes || 30}
+                                  onChange={(e) => handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", parseInt(e.target.value) || 30)}
+                                  onBlur={(e) => {
+                                    const val = parseInt(e.target.value) || 30;
+                                    const updated = { ...config, escalation_timeout_minutes: val };
+                                    handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", val);
+                                    handleSaveRoutingConfig(updated, false);
+                                  }}
+                                  className="w-full text-sm border border-grey-light rounded bg-white px-3 py-1.5 focus:outline-none focus:border-navy"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Level 1 Escalation Manager</label>
+                                <select
+                                  value={config.escalation_user_id || ""}
+                                  onChange={(e) => {
+                                    const updated = { ...config, escalation_user_id: e.target.value };
+                                    handleUpdateRoutingConfigState(dept, "escalation_user_id", e.target.value);
+                                    handleSaveRoutingConfig(updated, false);
+                                  }}
+                                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                                >
+                                  <option value="">-- Select Manager --</option>
+                                  {users.map((u) => (
+                                    <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-bold text-navy uppercase mb-1">Level 2 General Manager</label>
+                                <select
+                                  value={config.escalation_level2_user_id || ""}
+                                  onChange={(e) => {
+                                    const updated = { ...config, escalation_level2_user_id: e.target.value };
+                                    handleUpdateRoutingConfigState(dept, "escalation_level2_user_id", e.target.value);
+                                    handleSaveRoutingConfig(updated, false);
+                                  }}
+                                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                                >
+                                  <option value="">-- Select General Manager --</option>
+                                  {users.map((u) => (
+                                    <option key={u.id} value={u.id}>{u.email} ({u.role})</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Explicit Save Action & Feedback per Department Card */}
+                      <div className="flex items-center justify-between pt-4 border-t border-grey-light/60">
+                        <div className="flex items-center gap-2">
+                          {saveSuccessDept === dept && (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1">
+                              ✓ {dept.toUpperCase()} routing saved
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={savingDept === dept}
+                          onClick={() => handleSaveRoutingConfig(config, true)}
+                          className="px-4 py-2 bg-navy hover:bg-navy-light text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50"
+                        >
+                          <Save size={13} />
+                          {savingDept === dept ? "Saving..." : `Save ${dept.toUpperCase()} Routing`}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
@@ -990,6 +1463,110 @@ export default function BusinessProfile() {
             </Section>
           </div>
         )}
+      {/* User Editing Modal Popup */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-navy/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl border border-grey-light shadow-2xl w-full max-w-lg overflow-hidden transform scale-100 transition-all duration-300">
+            <div className="bg-navy p-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-bold">Edit Team Member</h3>
+                <p className="text-xs text-white/70">{editingUser.email}</p>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setEditingUser(null)}
+                className="text-white/80 hover:text-white text-lg font-bold"
+              >
+                &times;
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveUserEdit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Phone Number (WhatsApp alerts)</label>
+                <input
+                  type="text"
+                  value={editingUser.phone || ""}
+                  onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+                  placeholder="e.g. +234 813 160 8061"
+                  className="w-full text-sm border border-grey-light rounded px-3 py-1.5 focus:outline-none focus:border-navy focus:ring-1 focus:ring-navy"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Department</label>
+                <select
+                  value={editingUser.department || "general"}
+                  onChange={(e) => setEditingUser({ ...editingUser, department: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  {form.departments?.map((dept) => (
+                    <option key={dept} value={dept}>{dept.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Role Tier</label>
+                <select
+                  value={editingUser.role || "agent"}
+                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  <option value="owner">Owner / Administrator</option>
+                  <option value="admin">Department Manager</option>
+                  <option value="support_agent">Supervisor</option>
+                  <option value="agent">Staff / Officer</option>
+                  <option value="viewer">Viewer (Read-Only)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-navy uppercase mb-1 tracking-wider">Notification Preference</label>
+                <select
+                  value={editingUser.notification_preference || "all"}
+                  onChange={(e) => setEditingUser({ ...editingUser, notification_preference: e.target.value })}
+                  className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
+                >
+                  <option value="all">Both WhatsApp & Email</option>
+                  <option value="whatsapp">WhatsApp Only</option>
+                  <option value="email">Email Only</option>
+                  <option value="none">No Alerts</option>
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-3 py-2">
+                <input
+                  type="checkbox"
+                  id="user_receive_alerts"
+                  checked={editingUser.receive_operational_alerts !== false}
+                  onChange={(e) => setEditingUser({ ...editingUser, receive_operational_alerts: e.target.checked })}
+                  className="rounded border-grey-light text-navy focus:ring-navy h-4 w-4"
+                />
+                <label htmlFor="user_receive_alerts" className="text-sm font-medium text-navy cursor-pointer">
+                  Receive operational alerts (WhatsApp/Email)
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-grey-light">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 border border-grey-light hover:bg-grey-50 text-navy text-sm font-semibold rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-navy hover:bg-navy-light text-white text-sm font-semibold rounded-lg transition-all shadow-md"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       </div>
     </div>
     </div>
@@ -1055,6 +1632,24 @@ function KnowledgeBase({ docs, refresh, businessId }) {
   const [uploading, setUploading] = useState(false);
   const [scraping, setScraping] = useState(false);
 
+  const getKnowledgeAuthHeaders = (includeJson = true) => {
+    let token = null;
+    try {
+      const stored = localStorage.getItem('interact_user');
+      if (stored) {
+        token = JSON.parse(stored)?.token;
+      }
+    } catch (e) {}
+    const headers = {};
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   const handleUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1064,11 +1659,11 @@ function KnowledgeBase({ docs, refresh, businessId }) {
     formData.append("file", file);
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/knowledge/upload?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge/upload?business_id=${encodeURIComponent(businessId)}`,
         {
           method: "POST",
+          headers: getKnowledgeAuthHeaders(false),
           body: formData,
         },
       );
@@ -1087,10 +1682,9 @@ function KnowledgeBase({ docs, refresh, businessId }) {
     if (!url) return;
     setScraping(true);
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/knowledge/scrape`, {
+      const res = await fetch(`${API_BASE_URL}/api/knowledge/scrape`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getKnowledgeAuthHeaders(true),
         body: JSON.stringify({ url, business_id: businessId }),
       });
       if (!res.ok) throw new Error("Scrape failed");
@@ -1107,11 +1701,11 @@ function KnowledgeBase({ docs, refresh, businessId }) {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this document?")) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/knowledge/${id}?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge/${id}?business_id=${encodeURIComponent(businessId)}`,
         {
           method: "DELETE",
+          headers: getKnowledgeAuthHeaders(true),
         },
       );
       if (!res.ok) throw new Error("Delete failed");

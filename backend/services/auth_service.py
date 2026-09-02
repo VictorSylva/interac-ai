@@ -206,6 +206,9 @@ DEFAULT_ROLE_PERMISSIONS = {
         "hotel.reservations.read", "hotel.reservations.create", "hotel.reservations.update",
         "hotel.rooms.manage", "hotel.housekeeping.assign", "hotel.finance.read", "hotel.finance.export",
         "hotel.analytics.view", "security.cameras.view", "security.events.resolve",
+        "education.students.read", "education.students.write", "education.admissions.read", "education.attendance.write", "education.learning.read",
+        "retail.pos.read", "retail.pos.write", "retail.inventory.read", "retail.stores.manage",
+        "hospital.patients.read", "hospital.appointments.read", "hospital.emr.read",
         "workflow.manage", "conversation.reply", "customer.delete", "billing.manage", "module.install"
     ],
     "admin": [
@@ -252,6 +255,27 @@ DEFAULT_ROLE_PERMISSIONS = {
     "agent": [
         "conversation.reply"
     ],
+    "registrar": [
+        "education.students.read", "education.students.write", "education.admissions.read", "education.admissions.write", "conversation.reply"
+    ],
+    "teachers": [
+        "education.students.read", "education.attendance.write", "education.attendance.read", "education.learning.read", "conversation.reply"
+    ],
+    "parents": [
+        "education.students.read", "education.learning.read"
+    ],
+    "cashier": [
+        "retail.pos.read", "retail.pos.write", "retail.inventory.read"
+    ],
+    "doctor": [
+        "hospital.patients.read", "hospital.patients.write", "hospital.appointments.read", "hospital.emr.read", "hospital.emr.write"
+    ],
+    "nurse": [
+        "hospital.patients.read", "hospital.appointments.read", "hospital.emr.read"
+    ],
+    "pharmacist": [
+        "hospital.patients.read", "hospital.pharmacy.read", "hospital.pharmacy.write"
+    ],
     "viewer": [
         "hotel.reservations.read", "security.cameras.view"
     ]
@@ -288,6 +312,7 @@ async def create_employee_invitation(
     role_code: str,
     department: str,
     property_id: Optional[str] = None,
+    phone: Optional[str] = None,
     expires_in_hours: int = 48
 ) -> UserInvitation:
     # Expire any legacy pending invitations for this email under this business
@@ -311,6 +336,7 @@ async def create_employee_invitation(
         role=role_code,
         department=department,
         property_id=property_id,
+        phone=phone,
         status="pending",
         expires_at=expires_at
     )
@@ -366,6 +392,8 @@ async def accept_employee_invitation(session: Session, token: str, password: str
         existing_user.role = invite.role
         existing_user.department = invite.department
         existing_user.property_id = invite.property_id
+        if invite.phone:
+            existing_user.phone = invite.phone
         existing_user.password_hash = hashed_pwd
         existing_user.status = "active"
         existing_user.email_verified = True
@@ -379,6 +407,7 @@ async def accept_employee_invitation(session: Session, token: str, password: str
             role=invite.role,
             department=invite.department,
             property_id=invite.property_id,
+            phone=invite.phone,
             status="active",
             email_verified=True
         )
@@ -427,5 +456,50 @@ def require_permission(permission: str):
             return current_user
         if permission not in current_user.get("permissions", []):
             raise HTTPException(status_code=403, detail=f"Permission denied: Requires {permission}")
+        return current_user
+    return dependency
+
+def require_entitlement(entitlement_key: str):
+    """
+    Zero-Trust Multi-Tenant Guard:
+    Verifies that the tenant business itself is entitled to use this capability.
+    Runs BEFORE user RBAC permission evaluation.
+    """
+    async def dependency(current_user: dict = Depends(get_current_user)):
+        from services.entitlement_service import entitlement_service
+        business_id = current_user.get("business_id")
+        
+        # Super admin bypass
+        if current_user.get("role") == "super_admin":
+            return current_user
+
+        if not business_id:
+            raise HTTPException(status_code=403, detail="Tenant context missing")
+
+        is_allowed = await entitlement_service.is_entitled(business_id, entitlement_key)
+        if not is_allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Business is not entitled to use '{entitlement_key}'. Contact your InteracAI administrator to provision this capability."
+            )
+        return current_user
+    return dependency
+
+def require_department(allowed_departments: List[str]):
+    """
+    Operational Scope Guard:
+    Verifies that an employee's department matches the required operational scope.
+    """
+    async def dependency(current_user: dict = Depends(get_current_user)):
+        if current_user.get("role") in ["owner", "super_admin", "admin", "general_manager"]:
+            return current_user
+            
+        user_dept = (current_user.get("department") or "general").lower()
+        allowed = [d.lower() for d in allowed_departments]
+        if user_dept not in allowed and "general" not in allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Department access restricted: User in '{user_dept}', requires one of {allowed_departments}"
+            )
         return current_user
     return dependency

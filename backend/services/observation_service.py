@@ -120,12 +120,21 @@ class ObservationService:
 
         # Increment risk score on target entity if applicable
         if primary_entity_id and risk_impact != 0.0:
-            entity = db.query(EntityV2).filter(EntityV2.id == primary_entity_id).first()
-            if entity:
-                entity.risk_score = max(0.0, float(entity.risk_score or 0.0) + risk_impact)
+            if hasattr(db, "query"):
+                try:
+                    entity = db.query(EntityV2).filter(EntityV2.id == primary_entity_id).first()
+                    if entity:
+                        entity.risk_score = max(0.0, float(entity.risk_score or 0.0) + risk_impact)
+                except Exception as entity_err:
+                    logger.debug(f"Risk score update skipped on async session: {entity_err}")
 
-        db.commit()
-        db.refresh(observation)
+        # Synchronous commit if sync Session, otherwise handled by caller's await db.commit()
+        if hasattr(db, "commit") and not hasattr(db, "sync_session"):
+            try:
+                db.commit()
+                db.refresh(observation)
+            except Exception:
+                pass
         logger.info(f"Recorded observation '{observation_type}' from '{source_channel}' for Org '{org_id}'")
         
         # Async emit observation to central ARGUS Core
