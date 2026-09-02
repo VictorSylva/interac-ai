@@ -228,6 +228,7 @@ class DepartmentConfig(Base):
     notification_phone = Column(String, nullable=True)
     notification_email = Column(String, nullable=True)
     primary_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    property_id = Column(String, ForeignKey("properties.id"), nullable=True)
 
     routing_enabled = Column(Boolean, default=True)
     whatsapp_enabled = Column(Boolean, default=True)
@@ -245,6 +246,7 @@ class DepartmentConfig(Base):
     primary_user = relationship("User", foreign_keys=[primary_user_id])
     escalation_user = relationship("User", foreign_keys=[escalation_user_id])
     escalation_level2_user = relationship("User", foreign_keys=[escalation_level2_user_id])
+    property = relationship("Property", foreign_keys=[property_id])
 
 class NotificationEvent(Base):
     __tablename__ = "business_notification_events"

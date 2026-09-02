@@ -22,7 +22,7 @@ import os
 import json
 import re
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
 from services.ai_service import generate_response
 from services.prompt_service import prompt_service
@@ -442,6 +442,9 @@ from routes import (
     observation_routes,
     module_routes,
     hotel_routes,
+    hospital_routes,
+    retail_routes,
+    education_routes,
     copilot_fallback_routes,
     entitlement_routes
 )
@@ -460,6 +463,9 @@ app.include_router(entity_routes.router)
 app.include_router(observation_routes.router)
 app.include_router(module_routes.router)
 app.include_router(hotel_routes.router)
+app.include_router(hospital_routes.router)
+app.include_router(retail_routes.router)
+app.include_router(education_routes.router)
 app.include_router(copilot_fallback_routes.router)
 
 
@@ -1352,6 +1358,7 @@ async def update_profile(profile: BusinessProfile):
 
 class SaveRoutingConfigRequest(BaseModel):
     department: str
+    business_id: Optional[str] = None
     display_name: Optional[str] = None
     notification_phone: Optional[str] = None
     notification_email: Optional[str] = None
@@ -1365,21 +1372,31 @@ class SaveRoutingConfigRequest(BaseModel):
     escalation_level2_user_id: Optional[str] = None
     property_id: Optional[str] = None
 
+class SaveBulkRoutingConfigRequest(BaseModel):
+    business_id: Optional[str] = None
+    configs: List[SaveRoutingConfigRequest]
+
 @app.get("/api/business/routing-configs")
-async def get_routing_configs_endpoint(current_user: dict = Depends(get_current_user)):
+async def get_routing_configs_endpoint(
+    business_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user.get("role") not in ["owner", "admin", "super_admin"]:
         raise HTTPException(status_code=403, detail="Permission denied")
         
     from database.session import AsyncSessionLocal
     from database.models.general import DepartmentConfig
     
+    bid = business_id or current_user.get("business_id")
+    
     async with AsyncSessionLocal() as session:
-        stmt = select(DepartmentConfig).where(DepartmentConfig.business_id == current_user.get("business_id"))
+        stmt = select(DepartmentConfig).where(DepartmentConfig.business_id == bid)
         res = await session.execute(stmt)
         configs = res.scalars().all()
         return [
             {
                 "id": c.id,
+                "business_id": c.business_id,
                 "department": c.department,
                 "display_name": c.display_name,
                 "notification_phone": c.notification_phone,
@@ -1392,19 +1409,23 @@ async def get_routing_configs_endpoint(current_user: dict = Depends(get_current_
                 "escalation_timeout_minutes": c.escalation_timeout_minutes,
                 "escalation_user_id": c.escalation_user_id,
                 "escalation_level2_user_id": c.escalation_level2_user_id,
-                "property_id": c.property_id
+                "property_id": getattr(c, "property_id", None)
             } for c in configs
         ]
 
 @app.post("/api/business/routing-configs")
-async def save_routing_config_endpoint(body: SaveRoutingConfigRequest, current_user: dict = Depends(get_current_user)):
+async def save_routing_config_endpoint(
+    body: SaveRoutingConfigRequest, 
+    business_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user.get("role") not in ["owner", "admin", "super_admin"]:
         raise HTTPException(status_code=403, detail="Permission denied")
         
     from database.session import AsyncSessionLocal
     from database.models.general import DepartmentConfig
     
-    bid = current_user.get("business_id")
+    bid = body.business_id or business_id or current_user.get("business_id")
     
     async with AsyncSessionLocal() as session:
         stmt = select(DepartmentConfig).where(
@@ -1414,7 +1435,9 @@ async def save_routing_config_endpoint(body: SaveRoutingConfigRequest, current_u
         if body.property_id:
             stmt = stmt.where(DepartmentConfig.property_id == body.property_id)
         else:
-            stmt = stmt.where(DepartmentConfig.property_id.is_(None))
+            stmt = stmt.where(
+                (DepartmentConfig.property_id.is_(None)) | (DepartmentConfig.property_id == "")
+            )
             
         res = await session.execute(stmt)
         config_obj = res.scalar_one_or_none()
@@ -1424,39 +1447,106 @@ async def save_routing_config_endpoint(body: SaveRoutingConfigRequest, current_u
         
         if config_obj:
             # Update
-            config_obj.display_name = body.display_name
+            config_obj.display_name = body.display_name or (body.department.capitalize())
             config_obj.notification_phone = phone_normalized
             config_obj.notification_email = body.notification_email
-            config_obj.primary_user_id = body.primary_user_id
+            config_obj.primary_user_id = body.primary_user_id or None
             config_obj.routing_enabled = body.routing_enabled if body.routing_enabled is not None else config_obj.routing_enabled
             config_obj.whatsapp_enabled = body.whatsapp_enabled if body.whatsapp_enabled is not None else config_obj.whatsapp_enabled
             config_obj.email_enabled = body.email_enabled if body.email_enabled is not None else config_obj.email_enabled
             config_obj.escalation_enabled = body.escalation_enabled if body.escalation_enabled is not None else config_obj.escalation_enabled
             config_obj.escalation_timeout_minutes = body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else config_obj.escalation_timeout_minutes
-            config_obj.escalation_user_id = body.escalation_user_id
-            config_obj.escalation_level2_user_id = body.escalation_level2_user_id
+            config_obj.escalation_user_id = body.escalation_user_id or None
+            config_obj.escalation_level2_user_id = body.escalation_level2_user_id or None
+            config_obj.property_id = body.property_id or None
+            config_obj.updated_at = datetime.utcnow()
         else:
             # Create
             config_obj = DepartmentConfig(
                 business_id=bid,
                 department=body.department,
-                display_name=body.display_name,
+                display_name=body.display_name or (body.department.capitalize()),
                 notification_phone=phone_normalized,
                 notification_email=body.notification_email,
-                primary_user_id=body.primary_user_id,
+                primary_user_id=body.primary_user_id or None,
                 routing_enabled=body.routing_enabled if body.routing_enabled is not None else True,
                 whatsapp_enabled=body.whatsapp_enabled if body.whatsapp_enabled is not None else True,
                 email_enabled=body.email_enabled if body.email_enabled is not None else True,
                 escalation_enabled=body.escalation_enabled if body.escalation_enabled is not None else False,
                 escalation_timeout_minutes=body.escalation_timeout_minutes if body.escalation_timeout_minutes is not None else 30,
-                escalation_user_id=body.escalation_user_id,
-                escalation_level2_user_id=body.escalation_level2_user_id,
-                property_id=body.property_id
+                escalation_user_id=body.escalation_user_id or None,
+                escalation_level2_user_id=body.escalation_level2_user_id or None,
+                property_id=body.property_id or None
             )
             session.add(config_obj)
             
         await session.commit()
         return {"status": "success", "config_id": config_obj.id}
+
+@app.post("/api/business/routing-configs/bulk")
+async def save_bulk_routing_configs_endpoint(
+    body: SaveBulkRoutingConfigRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") not in ["owner", "admin", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+        
+    from database.session import AsyncSessionLocal
+    from database.models.general import DepartmentConfig
+    
+    bid = body.business_id or current_user.get("business_id")
+    
+    async with AsyncSessionLocal() as session:
+        for c in body.configs:
+            stmt = select(DepartmentConfig).where(
+                DepartmentConfig.business_id == bid,
+                DepartmentConfig.department == c.department
+            )
+            if c.property_id:
+                stmt = stmt.where(DepartmentConfig.property_id == c.property_id)
+            else:
+                stmt = stmt.where(
+                    (DepartmentConfig.property_id.is_(None)) | (DepartmentConfig.property_id == "")
+                )
+            res = await session.execute(stmt)
+            config_obj = res.scalar_one_or_none()
+            
+            phone_normalized = normalize_agent_phone(c.notification_phone) if c.notification_phone else None
+            
+            if config_obj:
+                config_obj.display_name = c.display_name or (c.department.capitalize())
+                config_obj.notification_phone = phone_normalized
+                config_obj.notification_email = c.notification_email
+                config_obj.primary_user_id = c.primary_user_id or None
+                config_obj.routing_enabled = c.routing_enabled if c.routing_enabled is not None else config_obj.routing_enabled
+                config_obj.whatsapp_enabled = c.whatsapp_enabled if c.whatsapp_enabled is not None else config_obj.whatsapp_enabled
+                config_obj.email_enabled = c.email_enabled if c.email_enabled is not None else config_obj.email_enabled
+                config_obj.escalation_enabled = c.escalation_enabled if c.escalation_enabled is not None else config_obj.escalation_enabled
+                config_obj.escalation_timeout_minutes = c.escalation_timeout_minutes if c.escalation_timeout_minutes is not None else config_obj.escalation_timeout_minutes
+                config_obj.escalation_user_id = c.escalation_user_id or None
+                config_obj.escalation_level2_user_id = c.escalation_level2_user_id or None
+                config_obj.property_id = c.property_id or None
+                config_obj.updated_at = datetime.utcnow()
+            else:
+                config_obj = DepartmentConfig(
+                    business_id=bid,
+                    department=c.department,
+                    display_name=c.display_name or (c.department.capitalize()),
+                    notification_phone=phone_normalized,
+                    notification_email=c.notification_email,
+                    primary_user_id=c.primary_user_id or None,
+                    routing_enabled=c.routing_enabled if c.routing_enabled is not None else True,
+                    whatsapp_enabled=c.whatsapp_enabled if c.whatsapp_enabled is not None else True,
+                    email_enabled=c.email_enabled if c.email_enabled is not None else True,
+                    escalation_enabled=c.escalation_enabled if c.escalation_enabled is not None else False,
+                    escalation_timeout_minutes=c.escalation_timeout_minutes if c.escalation_timeout_minutes is not None else 30,
+                    escalation_user_id=c.escalation_user_id or None,
+                    escalation_level2_user_id=c.escalation_level2_user_id or None,
+                    property_id=c.property_id or None
+                )
+                session.add(config_obj)
+        await session.commit()
+        return {"status": "success", "count": len(body.configs)}
 
 @app.post("/api/notifications/{event_id}/acknowledge")
 async def acknowledge_notification_endpoint(event_id: str, current_user: dict = Depends(get_current_user)):

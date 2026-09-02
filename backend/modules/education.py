@@ -46,6 +46,37 @@ class EducationModule(BaseIndustryModule):
         )
 
     async def on_install(self, org_id: str, db_session) -> bool:
+        # Register entity types in the database
+        from database.models.dynamic_entity import EntityType
+        from sqlalchemy import select
+        import uuid
+
+        local_session = False
+        if db_session is None:
+            from database.session import AsyncSessionLocal
+            db_session = AsyncSessionLocal()
+            local_session = True
+
+        try:
+            for et_spec in self.manifest.entity_types:
+                stmt = select(EntityType).where(EntityType.org_id == org_id, EntityType.code == et_spec.code)
+                res = await db_session.execute(stmt)
+                existing = res.scalar_one_or_none()
+                if not existing:
+                    et = EntityType(
+                        id=f"et_{uuid.uuid4().hex[:12]}",
+                        org_id=org_id,
+                        module_id=self.manifest.id,
+                        code=et_spec.code,
+                        display_name=et_spec.label,
+                        schema_definition=et_spec.default_attributes or {}
+                    )
+                    db_session.add(et)
+            await db_session.commit()
+        finally:
+            if local_session:
+                await db_session.close()
+
         copilot_skill_registry.register_skill(
             module_id="module_education",
             name="analyze_attendance_grades",
@@ -84,3 +115,41 @@ class EducationModule(BaseIndustryModule):
             "remedial_classes": ["Algebra 101", "Intro to Chemistry"],
             "guideline": "Notify parents and schedule study circle hours."
         }
+
+    async def _skill_predict_dropout(self, **kwargs) -> Dict[str, Any]:
+        return {
+            "total_students_evaluated": 420,
+            "flagged_high_risk": 2,
+            "high_risk_students": [
+                {"id": "EDU-STUD-5541", "name": "Chinedu Okafor", "risk_factors": ["8 consecutive unexcused absences", "unpaid second-term tuition"]}
+            ]
+        }
+
+    async def _skill_predict_defaults(self, **kwargs) -> Dict[str, Any]:
+        return {
+            "total_outstanding_invoices": 18,
+            "default_forecast_rate": "4.2%",
+            "high_probability_default_count": 3
+        }
+
+    async def _skill_analyze_workload(self, **kwargs) -> Dict[str, Any]:
+        return {
+            "total_faculty_members": 32,
+            "average_workload_hours_weekly": 26.5,
+            "overloaded_teachers_count": 4
+        }
+
+    async def _skill_generate_report_card(self, **kwargs) -> Dict[str, Any]:
+        student_id = kwargs.get("student_id", "UNKNOWN")
+        return {
+            "student_id": student_id,
+            "term": "Term 2 - 2026",
+            "overall_gpa": "3.65",
+            "grades": [
+                {"subject": "Mathematics", "score": 88, "grade": "A"},
+                {"subject": "English Literature", "score": 92, "grade": "A+"},
+                {"subject": "Physics", "score": 79, "grade": "B"}
+            ],
+            "teacher_remarks": "Demonstrates outstanding analytical thinking and steady class participation."
+        }
+

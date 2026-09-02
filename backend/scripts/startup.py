@@ -19,6 +19,24 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
     print("Initial database tables created/verified.")
     
+    # Ensure backward-compatible column migrations for existing tables
+    async with engine.begin() as conn:
+        from sqlalchemy import text
+        try:
+            if engine.dialect.name == "postgresql":
+                await conn.execute(text("ALTER TABLE business_department_configs ADD COLUMN IF NOT EXISTS property_id VARCHAR;"))
+            elif engine.dialect.name == "sqlite":
+                def add_sqlite_cols(sync_conn):
+                    cursor = sync_conn.connection.cursor()
+                    cursor.execute("PRAGMA table_info(business_department_configs)")
+                    cols = [c[1] for c in cursor.fetchall()]
+                    if "property_id" not in cols:
+                        cursor.execute("ALTER TABLE business_department_configs ADD COLUMN property_id VARCHAR")
+                        sync_conn.connection.commit()
+                await conn.run_sync(add_sqlite_cols)
+        except Exception as e:
+            print(f"Non-critical schema compatibility check note: {e}")
+            
     # Check if alembic_version table exists
     async with engine.connect() as conn:
         def check_alembic_table(sync_conn):

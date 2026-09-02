@@ -206,6 +206,9 @@ DEFAULT_ROLE_PERMISSIONS = {
         "hotel.reservations.read", "hotel.reservations.create", "hotel.reservations.update",
         "hotel.rooms.manage", "hotel.housekeeping.assign", "hotel.finance.read", "hotel.finance.export",
         "hotel.analytics.view", "security.cameras.view", "security.events.resolve",
+        "education.students.read", "education.students.write", "education.admissions.read", "education.attendance.write", "education.learning.read",
+        "retail.pos.read", "retail.pos.write", "retail.inventory.read", "retail.stores.manage",
+        "hospital.patients.read", "hospital.appointments.read", "hospital.emr.read",
         "workflow.manage", "conversation.reply", "customer.delete", "billing.manage", "module.install"
     ],
     "admin": [
@@ -251,6 +254,27 @@ DEFAULT_ROLE_PERMISSIONS = {
     ],
     "agent": [
         "conversation.reply"
+    ],
+    "registrar": [
+        "education.students.read", "education.students.write", "education.admissions.read", "education.admissions.write", "conversation.reply"
+    ],
+    "teachers": [
+        "education.students.read", "education.attendance.write", "education.attendance.read", "education.learning.read", "conversation.reply"
+    ],
+    "parents": [
+        "education.students.read", "education.learning.read"
+    ],
+    "cashier": [
+        "retail.pos.read", "retail.pos.write", "retail.inventory.read"
+    ],
+    "doctor": [
+        "hospital.patients.read", "hospital.patients.write", "hospital.appointments.read", "hospital.emr.read", "hospital.emr.write"
+    ],
+    "nurse": [
+        "hospital.patients.read", "hospital.appointments.read", "hospital.emr.read"
+    ],
+    "pharmacist": [
+        "hospital.patients.read", "hospital.pharmacy.read", "hospital.pharmacy.write"
     ],
     "viewer": [
         "hotel.reservations.read", "security.cameras.view"

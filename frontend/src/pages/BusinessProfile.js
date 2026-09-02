@@ -38,6 +38,28 @@ export default function BusinessProfile() {
   const [newPropName, setNewPropName] = useState("");
   const [activeSettingsTab, setActiveSettingsTab] = useState("profile");
   const [editingUser, setEditingUser] = useState(null);
+  const [saveSuccessDept, setSaveSuccessDept] = useState(null);
+  const [savingDept, setSavingDept] = useState(null);
+
+  const getAuthHeaders = (includeJson = true) => {
+    let token = currentUser?.token;
+    if (!token) {
+      try {
+        const stored = localStorage.getItem('interact_user');
+        if (stored) {
+          token = JSON.parse(stored)?.token;
+        }
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
 
   const handleUpdateProfile = (dept, role) => {
     setProfileSaved(false);
@@ -52,8 +74,9 @@ export default function BusinessProfile() {
 
   const fetchUsers = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/users`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/users`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setUsers(data);
@@ -65,8 +88,9 @@ export default function BusinessProfile() {
 
   const fetchInvitations = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invitations`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/invitations`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setInvites(data);
@@ -78,8 +102,9 @@ export default function BusinessProfile() {
 
   const fetchProperties = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/properties`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/properties`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setProperties(data);
@@ -91,8 +116,9 @@ export default function BusinessProfile() {
 
   const fetchAuditLogs = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/login-history`);
+      const res = await fetch(`${API_BASE_URL}/api/auth/login-history`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
         setLoginLogs(data);
@@ -122,10 +148,9 @@ export default function BusinessProfile() {
     e.preventDefault();
     if (!inviteEmail) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invite`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/invite`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           email: inviteEmail,
           role: inviteRole,
@@ -151,9 +176,9 @@ export default function BusinessProfile() {
   const handleCancelInvite = async (inviteId) => {
     if (!window.confirm("Cancel this invitation?")) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/invitations/${inviteId}/cancel`, {
-        method: "POST"
+      const res = await fetch(`${API_BASE_URL}/api/auth/invitations/${inviteId}/cancel`, {
+        method: "POST",
+        headers: getAuthHeaders(true)
       });
       if (res.ok) {
         alert("Invitation cancelled!");
@@ -168,10 +193,9 @@ export default function BusinessProfile() {
     const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
     if (!window.confirm(`Are you sure you want to ${newStatus === 'suspended' ? 'suspend' : 'reactivate'} this employee account?`)) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/users/${userId}/status`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/users/${userId}/status`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ status: newStatus })
       });
       if (res.ok) {
@@ -190,10 +214,9 @@ export default function BusinessProfile() {
     e.preventDefault();
     if (!editingUser) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/profile`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/profile`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           user_id: editingUser.id,
           role: editingUser.role,
@@ -238,11 +261,13 @@ export default function BusinessProfile() {
 
   const fetchRoutingConfigs = async () => {
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/business/routing-configs`);
+      const businessId = currentUser?.business_id || "";
+      const res = await fetch(`${API_BASE_URL}/api/business/routing-configs?business_id=${encodeURIComponent(businessId)}`, {
+        headers: getAuthHeaders(true)
+      });
       if (res.ok) {
         const data = await res.json();
-        setRoutingConfigs(data);
+        setRoutingConfigs(Array.isArray(data) ? data : []);
       }
     } catch (e) {
       console.error("Error fetching routing configs:", e);
@@ -262,20 +287,41 @@ export default function BusinessProfile() {
     });
   };
 
-  const handleSaveRoutingConfig = async (config) => {
+  const handleSaveRoutingConfig = async (config, notify = true) => {
+    if (!config?.department) return;
+    setSavingDept(config.department);
     try {
-      const fullConfig = { ...getDefaultDeptConfig(config.department), ...config };
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/business/routing-configs`, {
+      const fullConfig = { 
+        ...getDefaultDeptConfig(config.department), 
+        ...config,
+        business_id: currentUser?.business_id 
+      };
+      const res = await fetch(`${API_BASE_URL}/api/business/routing-configs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify(fullConfig)
       });
       if (res.ok) {
-        fetchRoutingConfigs();
+        await fetchRoutingConfigs();
+        setSaveSuccessDept(config.department);
+        setTimeout(() => setSaveSuccessDept(null), 3500);
+        if (notify) {
+          alert(`${config.department.toUpperCase()} routing configuration saved successfully!`);
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error("Error saving routing config:", err);
+        if (notify) {
+          alert(`Failed to save routing: ${err.detail || 'Server error'}`);
+        }
       }
     } catch (e) {
       console.error("Error saving routing config:", e);
+      if (notify) {
+        alert("Error saving routing configuration.");
+      }
+    } finally {
+      setSavingDept(null);
     }
   };
 
@@ -283,10 +329,9 @@ export default function BusinessProfile() {
     e.preventDefault();
     if (!newPropName) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/auth/properties`, {
+      const res = await fetch(`${API_BASE_URL}/api/auth/properties`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ name: newPropName })
       });
       if (res.ok) {
@@ -317,35 +362,40 @@ export default function BusinessProfile() {
   useEffect(() => {
     fetchProfile();
     fetchKnowledge();
+    if (currentUser?.business_id) {
+      fetchRoutingConfigs();
+      fetchUsers();
+      fetchProperties();
+    }
   }, [currentUser]);
 
   const fetchKnowledge = async () => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
       const res = await fetch(
-        `${apiUrl}/api/knowledge?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge?business_id=${encodeURIComponent(businessId)}`,
+        { headers: getAuthHeaders(true) }
       );
       if (!res.ok) throw new Error("Failed to fetch knowledge");
       const data = await res.json();
       setKnowledgeDocs(Array.isArray(data) ? data : []);
     } catch (error) {
+      console.error("Error fetching knowledge:", error);
     }
   };
 
   const fetchProfile = async () => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const res = await fetch(
-        `${apiUrl}/api/business-profile?business_id=${encodeURIComponent(
+        `${API_BASE_URL}/api/business-profile?business_id=${encodeURIComponent(
           businessId,
         )}`,
-        { signal: controller.signal },
+        { signal: controller.signal, headers: getAuthHeaders(true) },
       );
       clearTimeout(timeoutId);
 
@@ -357,6 +407,7 @@ export default function BusinessProfile() {
       setLoading(false);
     } catch (error) {
       if (error.name !== 'AbortError') {
+        console.error("Error fetching profile:", error);
       }
       setLoading(false);
     }
@@ -373,10 +424,10 @@ export default function BusinessProfile() {
       currentUser?.business_id || currentUser?.email || "default";
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/business-profile`, {
+      // 1. Persist main business profile
+      const res = await fetch(`${API_BASE_URL}/api/business-profile`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ ...form, business_id: businessId }),
       });
 
@@ -385,12 +436,37 @@ export default function BusinessProfile() {
         throw new Error(result.detail || "Save failed");
       }
 
-      alert("Profile saved successfully!");
+      // 2. Persist all department routing configurations atomically
+      if (form.departments && form.departments.length > 0) {
+        const payloadConfigs = form.departments.map((dept) => {
+          const existing = routingConfigs.find((c) => c.department === dept);
+          return {
+            ...getDefaultDeptConfig(dept),
+            ...(existing || {}),
+            business_id: businessId
+          };
+        });
+
+        const bulkRes = await fetch(`${API_BASE_URL}/api/business/routing-configs/bulk`, {
+          method: "POST",
+          headers: getAuthHeaders(true),
+          body: JSON.stringify({
+            business_id: businessId,
+            configs: payloadConfigs
+          })
+        });
+
+        if (bulkRes.ok) {
+          await fetchRoutingConfigs();
+        }
+      }
+
+      alert("All changes saved successfully!");
     } catch (error) {
       const detail = error.message;
       const displayError =
         typeof detail === "object" ? JSON.stringify(detail) : detail;
-      alert(`Failed to save profile: ${displayError}`);
+      alert(`Failed to save: ${displayError}`);
     } finally {
       setSaving(false);
     }
@@ -406,10 +482,9 @@ export default function BusinessProfile() {
     const businessId =
       currentUser?.business_id || currentUser?.email || "default";
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/train/${encodeURIComponent(businessId)}`,
-        { method: "POST" },
+        `${API_BASE_URL}/api/train/${encodeURIComponent(businessId)}`,
+        { method: "POST", headers: getAuthHeaders(true) },
       );
       if (!res.ok) throw new Error("Training failed on server");
       const data = await res.json();
@@ -1100,7 +1175,11 @@ export default function BusinessProfile() {
                               type="text"
                               value={config.notification_phone || ""}
                               onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_phone", e.target.value)}
-                              onBlur={() => handleSaveRoutingConfig(config)}
+                              onBlur={(e) => {
+                                const updated = { ...config, notification_phone: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "notification_phone", e.target.value);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
                               placeholder="e.g. +2348131608061"
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             />
@@ -1116,7 +1195,7 @@ export default function BusinessProfile() {
                                 onChange={(e) => {
                                   const updated = { ...config, email_enabled: e.target.checked };
                                   handleUpdateRoutingConfigState(dept, "email_enabled", e.target.checked);
-                                  handleSaveRoutingConfig(updated);
+                                  handleSaveRoutingConfig(updated, false);
                                 }}
                                 className="rounded text-navy border-grey-light focus:ring-navy"
                               />
@@ -1126,7 +1205,11 @@ export default function BusinessProfile() {
                               type="email"
                               value={config.notification_email || ""}
                               onChange={(e) => handleUpdateRoutingConfigState(dept, "notification_email", e.target.value)}
-                              onBlur={() => handleSaveRoutingConfig(config)}
+                              onBlur={(e) => {
+                                const updated = { ...config, notification_email: e.target.value };
+                                handleUpdateRoutingConfigState(dept, "notification_email", e.target.value);
+                                handleSaveRoutingConfig(updated, false);
+                              }}
                               placeholder="e.g. sales@company.com"
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             />
@@ -1144,7 +1227,7 @@ export default function BusinessProfile() {
                               onChange={(e) => {
                                 const updated = { ...config, primary_user_id: e.target.value };
                                 handleUpdateRoutingConfigState(dept, "primary_user_id", e.target.value);
-                                handleSaveRoutingConfig(updated);
+                                handleSaveRoutingConfig(updated, false);
                               }}
                               className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                             >
@@ -1166,7 +1249,7 @@ export default function BusinessProfile() {
                                   const val = e.target.value || null;
                                   const updated = { ...config, property_id: val };
                                   handleUpdateRoutingConfigState(dept, "property_id", val);
-                                  handleSaveRoutingConfig(updated);
+                                  handleSaveRoutingConfig(updated, false);
                                 }}
                                 className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                               >
@@ -1189,7 +1272,7 @@ export default function BusinessProfile() {
                               onChange={(e) => {
                                 const updated = { ...config, escalation_enabled: e.target.checked };
                                 handleUpdateRoutingConfigState(dept, "escalation_enabled", e.target.checked);
-                                handleSaveRoutingConfig(updated);
+                                handleSaveRoutingConfig(updated, false);
                               }}
                               className="rounded text-navy border-grey-light focus:ring-navy"
                             />
@@ -1204,7 +1287,12 @@ export default function BusinessProfile() {
                                   type="number"
                                   value={config.escalation_timeout_minutes || 30}
                                   onChange={(e) => handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", parseInt(e.target.value) || 30)}
-                                  onBlur={() => handleSaveRoutingConfig(config)}
+                                  onBlur={(e) => {
+                                    const val = parseInt(e.target.value) || 30;
+                                    const updated = { ...config, escalation_timeout_minutes: val };
+                                    handleUpdateRoutingConfigState(dept, "escalation_timeout_minutes", val);
+                                    handleSaveRoutingConfig(updated, false);
+                                  }}
                                   className="w-full text-sm border border-grey-light rounded bg-white px-3 py-1.5 focus:outline-none focus:border-navy"
                                 />
                               </div>
@@ -1215,7 +1303,7 @@ export default function BusinessProfile() {
                                   onChange={(e) => {
                                     const updated = { ...config, escalation_user_id: e.target.value };
                                     handleUpdateRoutingConfigState(dept, "escalation_user_id", e.target.value);
-                                    handleSaveRoutingConfig(updated);
+                                    handleSaveRoutingConfig(updated, false);
                                   }}
                                   className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                                 >
@@ -1232,7 +1320,7 @@ export default function BusinessProfile() {
                                   onChange={(e) => {
                                     const updated = { ...config, escalation_level2_user_id: e.target.value };
                                     handleUpdateRoutingConfigState(dept, "escalation_level2_user_id", e.target.value);
-                                    handleSaveRoutingConfig(updated);
+                                    handleSaveRoutingConfig(updated, false);
                                   }}
                                   className="w-full text-sm border border-grey-light bg-white rounded px-3 py-1.5 focus:outline-none focus:border-navy"
                                 >
@@ -1245,6 +1333,26 @@ export default function BusinessProfile() {
                             </div>
                           )}
                         </div>
+                      </div>
+
+                      {/* Explicit Save Action & Feedback per Department Card */}
+                      <div className="flex items-center justify-between pt-4 border-t border-grey-light/60">
+                        <div className="flex items-center gap-2">
+                          {saveSuccessDept === dept && (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md flex items-center gap-1">
+                              ✓ {dept.toUpperCase()} routing saved
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={savingDept === dept}
+                          onClick={() => handleSaveRoutingConfig(config, true)}
+                          className="px-4 py-2 bg-navy hover:bg-navy-light text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-2 shadow-sm disabled:opacity-50"
+                        >
+                          <Save size={13} />
+                          {savingDept === dept ? "Saving..." : `Save ${dept.toUpperCase()} Routing`}
+                        </button>
                       </div>
                     </div>
                   );
@@ -1524,6 +1632,24 @@ function KnowledgeBase({ docs, refresh, businessId }) {
   const [uploading, setUploading] = useState(false);
   const [scraping, setScraping] = useState(false);
 
+  const getKnowledgeAuthHeaders = (includeJson = true) => {
+    let token = null;
+    try {
+      const stored = localStorage.getItem('interact_user');
+      if (stored) {
+        token = JSON.parse(stored)?.token;
+      }
+    } catch (e) {}
+    const headers = {};
+    if (includeJson) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    return headers;
+  };
+
   const handleUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1533,11 +1659,11 @@ function KnowledgeBase({ docs, refresh, businessId }) {
     formData.append("file", file);
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/knowledge/upload?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge/upload?business_id=${encodeURIComponent(businessId)}`,
         {
           method: "POST",
+          headers: getKnowledgeAuthHeaders(false),
           body: formData,
         },
       );
@@ -1556,10 +1682,9 @@ function KnowledgeBase({ docs, refresh, businessId }) {
     if (!url) return;
     setScraping(true);
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-      const res = await fetch(`${apiUrl}/api/knowledge/scrape`, {
+      const res = await fetch(`${API_BASE_URL}/api/knowledge/scrape`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getKnowledgeAuthHeaders(true),
         body: JSON.stringify({ url, business_id: businessId }),
       });
       if (!res.ok) throw new Error("Scrape failed");
@@ -1576,11 +1701,11 @@ function KnowledgeBase({ docs, refresh, businessId }) {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this document?")) return;
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/knowledge/${id}?business_id=${encodeURIComponent(businessId)}`,
+        `${API_BASE_URL}/api/knowledge/${id}?business_id=${encodeURIComponent(businessId)}`,
         {
           method: "DELETE",
+          headers: getKnowledgeAuthHeaders(true),
         },
       );
       if (!res.ok) throw new Error("Delete failed");

@@ -1186,8 +1186,48 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                             attrs["status"] = "OUT_OF_SERVICE"
                             room.attributes = attrs
                             await session.commit()
-                            return {"action_result": "blocked", "room": room_number}
-            return {"action_result": "failed", "error": "Room not found or no business_id"}
+        elif action_type == "record_observation":
+            # Action: Record an observation signal to Observation Bus & ARGUS OS
+            from services.observation_service import observation_service
+            from database.session import AsyncSessionLocal
+            
+            business_id = context.get("business_id", "default")
+            source_channel = config.get("source_channel", "workflow")
+            obs_type = config.get("observation_type", "workflow_signal")
+            severity = config.get("severity", "INFO")
+            
+            # Hydrate location label
+            location_raw = config.get("location_label") or config.get("location") or ""
+            location_label = hydrate_text(location_raw, context) if location_raw else (context.get("trigger", {}).get("room_number") or context.get("trigger", {}).get("location"))
+            
+            # Hydrate payload
+            payload_data = config.get("payload") or {}
+            if isinstance(payload_data, str):
+                try:
+                    payload_data = json.loads(hydrate_text(payload_data, context))
+                except Exception:
+                    payload_data = {"message": hydrate_text(payload_data, context)}
+            elif isinstance(payload_data, dict):
+                payload_data = {k: (hydrate_text(v, context) if isinstance(v, str) else v) for k, v in payload_data.items()}
+            
+            if not payload_data and "trigger" in context:
+                payload_data = dict(context.get("trigger", {}))
+                
+            primary_entity = context.get("primary_entity_id") or context.get("trigger", {}).get("reservation_id") or context.get("trigger", {}).get("guest_id") or context.get("trigger", {}).get("student_id") or context.get("trigger", {}).get("patient_id")
+            
+            async with AsyncSessionLocal() as session:
+                obs = observation_service.record_observation(
+                    db=session,
+                    org_id=business_id,
+                    source_channel=source_channel,
+                    observation_type=obs_type,
+                    primary_entity_id=primary_entity,
+                    location_label=location_label,
+                    payload=payload_data,
+                    severity=severity
+                )
+                await session.commit()
+                return {"action_result": "observation_recorded", "observation_id": obs.id, "observation_type": obs_type}
         
         return {"action_result": "unknown_type"}
 
