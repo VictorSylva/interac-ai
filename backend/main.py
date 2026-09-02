@@ -2214,9 +2214,37 @@ async def web_chat(body: WebMessage):
                     logger.error(f"Failed to write booking debug file: {write_err}")
                 ai_reply = "I encountered an error processing the booking. Please try again or contact support."
 
+        # 5.3 Parse HOTEL_RESERVATION action
+        hotel_res_match = re.search(r'\[ACTION:\s*HOTEL_RESERVATION\s*\|\s*(?P<json>\{.*?\})\]', ai_reply, re.IGNORECASE | re.DOTALL)
+        if hotel_res_match:
+            try:
+                res_json_str = hotel_res_match.group('json').strip()
+                res_json_str = re.sub(r'^```(?:json)?\s*', '', res_json_str)
+                res_json_str = re.sub(r'\s*```$', '', res_json_str).strip()
+                reservation_data = json.loads(res_json_str)
+
+                cust_phone = None
+                cust_email = None
+                if lead_obj:
+                    cust_phone = getattr(lead_obj, 'phone', None)
+                    cust_email = getattr(lead_obj, 'email', None)
+
+                from services.hotel_reservation_service import hotel_reservation_service
+                await hotel_reservation_service.create_reservation_from_ai(
+                    business_id=real_business_id,
+                    reservation_data=reservation_data,
+                    customer_phone=cust_phone,
+                    customer_email=cust_email,
+                    platform="web"
+                )
+                logger.info(f"[Chat] Processed Hotel Reservation for guest {reservation_data.get('guest_name')} (Web User {body.user_id})")
+                ai_reply = ai_reply.replace(hotel_res_match.group(0), "").strip()
+            except Exception as res_err:
+                logger.error(f"[Chat] Error parsing hotel reservation action: {res_err}")
+
         # Final cleanup of any remaining internal markers
-        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply).strip()
-        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply).strip()
+        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
+        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
 
         await store_message(real_business_id, body.user_id, ai_reply, "bot", platform="web", intent=detected_intent, sentiment=sentiment)
         

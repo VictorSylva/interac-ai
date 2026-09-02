@@ -187,6 +187,26 @@ async def process_whatsapp_message_task(from_number: str, msg_body: str, phone_i
             except Exception as e:
                 logger.error(f"Error parsing funnel progression: {e}")
 
+        # Hotel Reservation (PMS Action)
+        hotel_res_match = re.search(r'\[ACTION:\s*HOTEL_RESERVATION\s*\|\s*(?P<json>\{.*?\})\]', ai_reply, re.IGNORECASE | re.DOTALL)
+        if hotel_res_match:
+            try:
+                res_json_str = hotel_res_match.group('json').strip()
+                res_json_str = re.sub(r'^```(?:json)?\s*', '', res_json_str)
+                res_json_str = re.sub(r'\s*```$', '', res_json_str).strip()
+                reservation_data = json_lib.loads(res_json_str)
+                
+                from .hotel_reservation_service import hotel_reservation_service
+                await hotel_reservation_service.create_reservation_from_ai(
+                    business_id=business_id,
+                    reservation_data=reservation_data,
+                    customer_phone=from_number,
+                    platform="whatsapp"
+                )
+                logger.info(f"[WhatsApp] Processed Hotel Reservation for guest {reservation_data.get('guest_name')} ({from_number})")
+            except Exception as res_err:
+                logger.error(f"[WhatsApp] Error parsing hotel reservation action: {res_err}")
+
         # Analysis Tags
         analysis_match = re.search(r'\[ANALYSIS:\s*(?P<intent>.*?)\s*\|\s*(?P<sentiment>.*?)\s*\]', ai_reply, re.IGNORECASE)
         final_intent = detected_intent
@@ -198,8 +218,8 @@ async def process_whatsapp_message_task(from_number: str, msg_body: str, phone_i
                 final_sentiment = analysis_match.group('sentiment').strip()
 
         # Final cleanup
-        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply).strip()
-        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply).strip()
+        ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
+        ai_reply = re.sub(r'\[ANALYSIS:.*?\]', '', ai_reply, flags=re.DOTALL).strip()
 
         # 5. Store & Send
         await store_message(business_id, from_number, ai_reply, "agent", platform="whatsapp", intent=final_intent, sentiment=final_sentiment)
