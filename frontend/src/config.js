@@ -1,7 +1,12 @@
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
-const rawApiUrl = process.env.REACT_APP_API_URL || 
-  (isLocal ? "http://localhost:8000" : "https://interacai-backend-staging-9q3u.onrender.com");
+const liveBackendUrl = "https://interact-backend-staging.onrender.com";
+
+const rawApiUrl = isLocal 
+  ? (process.env.REACT_APP_API_URL || "http://localhost:8000")
+  : (process.env.REACT_APP_API_URL && !process.env.REACT_APP_API_URL.includes("localhost") 
+      ? process.env.REACT_APP_API_URL 
+      : liveBackendUrl);
 
 // Ensure clean URL with no trailing slashes
 export const API_BASE_URL = rawApiUrl.replace(/\/+$/, '');

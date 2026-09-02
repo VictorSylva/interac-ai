@@ -2390,6 +2390,24 @@ async def update_lead_endpoint(lead_id: int, update: LeadUpdate, business_id: st
         raise HTTPException(status_code=404, detail="Lead not found")
     return result
 
+@app.delete("/api/leads/{lead_id}")
+async def delete_lead_endpoint(lead_id: int, business_id: str):
+    """Delete a lead for a business"""
+    from services.db_service import get_all_possible_business_ids
+    from database.session import AsyncSessionLocal
+    from database.models.crm import Lead, LeadActivity
+    from sqlalchemy import delete
+    
+    bids = await get_all_possible_business_ids(business_id)
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(LeadActivity).where(LeadActivity.lead_id == lead_id))
+        stmt = delete(Lead).where(Lead.id == lead_id, Lead.business_id.in_(bids))
+        res = await session.execute(stmt)
+        await session.commit()
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return {"status": "success", "message": f"Lead {lead_id} deleted"}
+
 @app.get("/api/leads/{lead_id}/activity")
 async def get_lead_activity(lead_id: int, business_id: str):
     """Get activity timeline for a lead"""
