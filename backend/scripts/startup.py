@@ -13,7 +13,7 @@ async def init_db():
     print("Auto-creating initial database tables if they do not exist...")
     # Import models to ensure they are registered with Base.metadata
     from database.base import Base
-    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, dynamic_entity, observation, entitlement
+    from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, dynamic_entity, observation, entitlement, billing, payment, admin
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

@@ -19,6 +19,20 @@ export default function RoomsDirectory({ orgId }) {
     nightly_rate: 150.0
   });
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   useEffect(() => {
     fetchRooms();
   }, [orgId]);
@@ -26,7 +40,9 @@ export default function RoomsDirectory({ orgId }) {
   const fetchRooms = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}&entity_type_code=hotel_room`);
+      const res = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}&entity_type_code=hotel_room`, {
+        headers: getAuthHeaders(false)
+      });
       if (res.ok) {
         const data = await res.json();
         setRooms(data.items || []);
@@ -44,7 +60,7 @@ export default function RoomsDirectory({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/entities`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           org_id: orgId,
           module_id: 'module_hotels',
@@ -81,7 +97,7 @@ export default function RoomsDirectory({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/entities/${roomId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           attributes: {
             ...room.attributes,
@@ -98,10 +114,11 @@ export default function RoomsDirectory({ orgId }) {
   };
 
   const handleDeleteRoom = async (roomId) => {
-    if (!window.confirm("Are you sure you want to delete this room configuration?")) return;
+    if (!window.confirm("Are you sure you want to remove this room profile?")) return;
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/entities/${roomId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: getAuthHeaders(false)
       });
       if (res.ok) {
         await fetchRooms();

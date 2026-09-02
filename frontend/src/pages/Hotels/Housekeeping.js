@@ -20,6 +20,20 @@ export default function Housekeeping({ orgId }) {
     notes: ''
   });
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   useEffect(() => {
     fetchData();
   }, [orgId]);
@@ -27,13 +41,17 @@ export default function Housekeeping({ orgId }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const resVal = await fetch(`${API_BASE_URL}/api/v1/hotels/housekeeping/tasks?org_id=${encodeURIComponent(orgId)}`);
+      const resVal = await fetch(`${API_BASE_URL}/api/v1/hotels/housekeeping/tasks?org_id=${encodeURIComponent(orgId)}`, {
+        headers: getAuthHeaders(false)
+      });
       if (resVal.ok) {
         const data = await resVal.json();
         setTasks(data || []);
       }
       
-      const roomVal = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}&entity_type_code=hotel_room`);
+      const roomVal = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}&entity_type_code=hotel_room`, {
+        headers: getAuthHeaders(false)
+      });
       if (roomVal.ok) {
         const roomData = await roomVal.json();
         setRooms(roomData.items || []);
@@ -51,7 +69,7 @@ export default function Housekeeping({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/housekeeping/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           org_id: orgId,
           ...formData
@@ -73,7 +91,7 @@ export default function Housekeeping({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/housekeeping/tasks/${taskId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           status: newStatus
         })

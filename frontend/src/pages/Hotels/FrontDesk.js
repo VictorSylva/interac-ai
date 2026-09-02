@@ -21,6 +21,20 @@ export default function FrontDesk({ orgId }) {
   const [chargeForm, setChargeForm] = useState({ description: '', amount: 0.0 });
   const [paymentForm, setPaymentForm] = useState({ amount: 0.0, payment_method: 'Card' });
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   useEffect(() => {
     fetchData();
   }, [orgId]);
@@ -28,7 +42,9 @@ export default function FrontDesk({ orgId }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const resVal = await fetch(`${API_BASE_URL}/api/v1/hotels/reservations?org_id=${encodeURIComponent(orgId)}`);
+      const resVal = await fetch(`${API_BASE_URL}/api/v1/hotels/reservations?org_id=${encodeURIComponent(orgId)}`, {
+        headers: getAuthHeaders(false)
+      });
       if (resVal.ok) {
         const data = await resVal.json();
         setReservations(data || []);
@@ -48,7 +64,7 @@ export default function FrontDesk({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/checkin`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ org_id: orgId, reservation_id: reservationId })
       });
       if (res.ok) {
@@ -69,7 +85,7 @@ export default function FrontDesk({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/checkout`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ org_id: orgId, reservation_id: reservationId })
       });
       if (res.ok) {
@@ -93,7 +109,7 @@ export default function FrontDesk({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/folios/charge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           org_id: orgId,
           folio_id: selectedFolio.id,
@@ -124,7 +140,7 @@ export default function FrontDesk({ orgId }) {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/hotels/folios/pay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           org_id: orgId,
           folio_id: selectedFolio.id,
@@ -150,7 +166,9 @@ export default function FrontDesk({ orgId }) {
 
   const fetchFolioDetails = async (folioId) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/entities/${folioId}`);
+      const res = await fetch(`${API_BASE_URL}/api/v1/entities/${folioId}`, {
+        headers: getAuthHeaders(false)
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedFolio(data);

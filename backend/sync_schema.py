@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import config
 from database.session import DATABASE_URL, engine
 from database.base import Base
-from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, entitlement, dynamic_entity, observation
+from database.models import general, chat, crm, workflow, scheduling, behavior_analytics, sales, entitlement, dynamic_entity, observation, billing, payment, admin
 
 async def sync_database():
     print(f"Connecting to database: {DATABASE_URL}")

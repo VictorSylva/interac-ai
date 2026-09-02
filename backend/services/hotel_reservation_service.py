@@ -423,6 +423,30 @@ class HotelReservationService:
                     f"for {guest_name} in REAL Room '{actual_room_number}' ({cin_str} to {cout_str})"
                 )
 
+                # 5b. Synchronize Customer directly into CRM (leads table)
+                try:
+                    from services.db_service import save_lead
+                    g_phone = customer_phone or (guest.attributes or {}).get("phone", "")
+                    g_email = customer_email or (guest.attributes or {}).get("email", "")
+                    lead_id = await save_lead(real_business_id, {
+                        "name": guest_name,
+                        "phone": g_phone,
+                        "email": g_email,
+                        "source": f"{platform.capitalize()} Hotel Booking",
+                        "conversation_id": f"wa_{customer_phone}" if platform == "whatsapp" else None,
+                        "notes": (
+                            f"Automated Hotel Reservation: Room {actual_room_number} ({actual_room_type}) "
+                            f"from {cin_str} to {cout_str} ({nights} nights). Total: ₦{total_amount:,.2f}. "
+                            f"{('Requests: ' + special_requests) if special_requests else ''}"
+                        ),
+                        "status": "won",
+                        "value": int(total_amount),
+                        "tags": ["hotel_guest", "booked", actual_room_type.lower().replace(" ", "_")]
+                    })
+                    logger.info(f"[HotelReservationService] Synced guest {guest_name} to CRM with Lead ID: {lead_id}")
+                except Exception as crm_err:
+                    logger.warning(f"[HotelReservationService] CRM sync error: {crm_err}")
+
                 # 6. Trigger Workflow Engine for Automations
                 try:
                     await workflow_engine.trigger_workflow(real_business_id, "reservation_booked", {

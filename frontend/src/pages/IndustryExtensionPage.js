@@ -43,6 +43,20 @@ export default function IndustryExtensionPage() {
   // Form State
   const [formData, setFormData] = useState({});
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   useEffect(() => {
     fetchModuleData();
   }, [path, orgId]);
@@ -51,14 +65,18 @@ export default function IndustryExtensionPage() {
     setLoading(true);
     try {
       // Fetch dynamic entities
-      const entRes = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}`);
+      const entRes = await fetch(`${API_BASE_URL}/api/v1/entities?org_id=${encodeURIComponent(orgId)}`, {
+        headers: getAuthHeaders(false)
+      });
       if (entRes.ok) {
         const data = await entRes.json();
         setEntities(data.items || []);
       }
 
       // Fetch live observations / signals
-      const obsRes = await fetch(`${API_BASE_URL}/api/v1/observations?org_id=${encodeURIComponent(orgId)}`);
+      const obsRes = await fetch(`${API_BASE_URL}/api/v1/observations?org_id=${encodeURIComponent(orgId)}`, {
+        headers: getAuthHeaders(false)
+      });
       if (obsRes.ok) {
         const obsData = await obsRes.json();
         setObservations(obsData.items || []);
@@ -76,7 +94,7 @@ export default function IndustryExtensionPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/modules/skills/execute`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ skill_id: skillId, params })
       });
       if (res.ok) {
