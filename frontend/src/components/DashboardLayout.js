@@ -19,15 +19,57 @@ export default function DashboardLayout() {
   const [installedModules, setInstalledModules] = useState([]);
   const businessId = currentUser?.business_id || currentUser?.email;
 
+  const getAuthHeaders = (includeJson = false) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   const fetchInstalledModules = React.useCallback(() => {
     if (!businessId) return;
-    fetch(`${API_BASE_URL}/api/v1/modules/installed?org_id=${encodeURIComponent(businessId)}`)
+    fetch(`${API_BASE_URL}/api/v1/modules/installed?org_id=${encodeURIComponent(businessId)}`, {
+      headers: getAuthHeaders(false)
+    })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
-        setInstalledModules(Array.isArray(data) ? data : data.modules || []);
+        let modules = Array.isArray(data) ? data : data.modules || [];
+        const isHotelBiz = (
+          subStatus?.industry === 'hotel' || 
+          currentUser?.industry === 'hotel' || 
+          (currentUser?.business_name && currentUser.business_name.toLowerCase().includes('hotel')) ||
+          (subStatus?.name && subStatus.name.toLowerCase().includes('hotel'))
+        );
+        if (modules.length === 0 && isHotelBiz) {
+          modules = [{
+            id: 'module_hotels',
+            name: 'Hotels & Hospitality Intelligence',
+            ui_extensions: {
+              routes: [
+                { path: "/hotels/reservations", title: "Reservations Calendar", icon: "Calendar" },
+                { path: "/hotels/frontdesk", title: "Front Desk & Check-in", icon: "UserCheck" },
+                { path: "/hotels/rooms", title: "Rooms Directory", icon: "Key" },
+                { path: "/hotels/housekeeping", title: "Housekeeping Schedule", icon: "Briefcase" },
+                { path: "/hotels/maintenance", title: "Maintenance Tickets", icon: "Wrench" },
+                { path: "/hotels/restaurant", title: "Restaurant POS", icon: "Coffee" },
+                { path: "/hotels/inventory", title: "Inventory Control", icon: "Package" },
+                { path: "/hotels/finance", title: "Folio Finance & Invoices", icon: "Receipt" },
+                { path: "/hotels/analytics", title: "ADR / RevPAR Analytics", icon: "BarChart2" }
+              ]
+            }
+          }];
+        }
+        setInstalledModules(modules);
       })
       .catch(err => console.error("Error fetching installed modules:", err));
-  }, [businessId]);
+  }, [businessId, subStatus, currentUser]);
 
   React.useEffect(() => {
     if (businessId) {

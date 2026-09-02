@@ -13,6 +13,7 @@ import {
   Filter,
   ChevronRight,
   Send,
+  Trash2,
 } from "lucide-react";
 import Loader from "../components/Loader";
 
@@ -41,20 +42,37 @@ export default function Leads() {
     }
   }, [currentUser]);
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   const fetchLeads = async (bid) => {
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const res = await fetch(`${apiUrl}/api/leads?business_id=${bid}`, {
+      const res = await fetch(`${API_BASE_URL}/api/leads?business_id=${encodeURIComponent(bid)}`, {
         signal: controller.signal,
+        headers: getAuthHeaders(false),
       });
       clearTimeout(timeoutId);
 
       if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
       const data = await res.json();
-      setLeads(Array.isArray(data) ? data : []);
+      const validLeads = Array.isArray(data) 
+        ? data.filter(l => l && (l.name || l.phone || l.email || l.contact || (l.tags && l.tags.length > 0))) 
+        : [];
+      setLeads(validLeads);
     } catch (err) {
       if (err.name !== 'AbortError') {
       }
@@ -65,15 +83,16 @@ export default function Leads() {
 
   const fetchLeadActivities = async (leadId) => {
     const bid = currentUser.business_id || currentUser.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     setLoadingActivities(true);
     try {
       const [activityRes, aptRes] = await Promise.all([
         fetch(
-          `${apiUrl}/api/leads/${leadId}/activity?business_id=${bid}`,
+          `${API_BASE_URL}/api/leads/${leadId}/activity?business_id=${encodeURIComponent(bid)}`,
+          { headers: getAuthHeaders(false) }
         ),
         fetch(
-          `${apiUrl}/api/scheduling/appointments?business_id=${bid}&lead_id=${leadId}`,
+          `${API_BASE_URL}/api/scheduling/appointments?business_id=${encodeURIComponent(bid)}&lead_id=${leadId}`,
+          { headers: getAuthHeaders(false) }
         ),
       ]);
 
@@ -106,12 +125,11 @@ export default function Leads() {
     setSelectedLead({ ...selectedLead, status: newStatus });
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/leads/${selectedLead.id}?business_id=${bid}`,
+        `${API_BASE_URL}/api/leads/${selectedLead.id}?business_id=${encodeURIComponent(bid)}`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(true),
           body: JSON.stringify({ status: newStatus }),
         },
       );
@@ -138,12 +156,11 @@ export default function Leads() {
     setSendingMessage(true);
 
     try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       const res = await fetch(
-        `${apiUrl}/api/leads/${selectedLead.id}/message?business_id=${bid}`,
+        `${API_BASE_URL}/api/leads/${selectedLead.id}/message?business_id=${encodeURIComponent(bid)}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: getAuthHeaders(true),
           body: JSON.stringify({
             message: messageText,
             user_id: currentUser.id || "agent",
@@ -159,6 +176,27 @@ export default function Leads() {
       alert("Failed to send message. Please try again.");
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  const handleDeleteLead = async (leadId) => {
+    if (!window.confirm("Are you sure you want to delete this lead record?")) return;
+    const bid = currentUser.business_id || currentUser.email || "default";
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/api/leads/${leadId}?business_id=${encodeURIComponent(bid)}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(false),
+        }
+      );
+      if (!res.ok) throw new Error("Failed to delete lead");
+      setLeads(leads.filter((l) => l.id !== leadId));
+      if (selectedLead?.id === leadId) {
+        setSelectedLead(null);
+      }
+    } catch (err) {
+      alert("Failed to delete lead: " + err.message);
     }
   };
 
@@ -459,12 +497,21 @@ export default function Leads() {
                   {new Date(selectedLead.created_at).toLocaleDateString()}
                 </p>
               </div>
-              <button
-                onClick={() => setSelectedLead(null)}
-                className="p-2 hover:bg-grey-200 rounded-full text-grey-500 transition-colors"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleDeleteLead(selectedLead.id)}
+                  title="Delete Lead"
+                  className="p-2 hover:bg-red-50 rounded-full text-grey-400 hover:text-red-600 transition-colors"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <button
+                  onClick={() => setSelectedLead(null)}
+                  className="p-2 hover:bg-grey-200 rounded-full text-grey-500 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Body */}
