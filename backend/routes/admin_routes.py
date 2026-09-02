@@ -125,6 +125,9 @@ async def provision_enterprise_business(req: ProvisionEnterpriseBusinessRequest,
                 admin_id=user_id
             )
             return {"status": "success", "data": result}
+        except ValueError as ve:
+            logger.warning(f"Validation error provisioning enterprise business: {ve}")
+            raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
             logger.error(f"Error provisioning enterprise business: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))

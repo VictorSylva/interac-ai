@@ -51,5 +51,13 @@ def main():
             sys.exit(res.returncode)
         print("Migrations completed successfully.")
 
+    # 3. Ensure essential subscription plans (including custom_operating_system) exist
+    try:
+        from seed_plans import seed_plans
+        print("Ensuring standard subscription plans are seeded...")
+        asyncio.run(seed_plans())
+    except Exception as e:
+        print(f"Warning: Failed to auto-seed subscription plans: {e}")
+
 if __name__ == "__main__":
     main()

@@ -56,6 +56,20 @@ async def seed_plans():
                 "max_workflows": -1,
                 "max_ai_messages": -1
             }
+        },
+        {
+            "id": "custom_operating_system",
+            "name": "Custom Operating System",
+            "price": None,
+            "token_allocation": 10000000,
+            "conversation_limit": -1,
+            "is_public": False,
+            "requires_contact": True,
+            "feature_flags": {f: True for f in ["whatsapp_bot", "web_chat", "advanced_workflows", "crm", "email", "analytics_basic", "analytics_full", "scheduling", "api_access", "industry_os"]},
+            "limits": {
+                "max_workflows": -1,
+                "max_ai_messages": -1
+            }
         }
     ]
 

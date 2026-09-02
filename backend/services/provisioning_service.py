@@ -11,7 +11,7 @@ from sqlalchemy import select
 from typing import Dict, Any, Optional, List
 
 from database.models.general import Business, BusinessSettings, Role, User
-from database.models.billing import BusinessSubscription, TokenWallet
+from database.models.billing import BusinessSubscription, TokenWallet, SubscriptionPlan
 from database.models.entitlement import BusinessEntitlement, CommercialProfile, AdminAuditLog
 from database.models.dynamic_entity import EntityType, EntityV2
 from database.models.observation import ObservationV2
@@ -68,6 +68,12 @@ async def provision_tenant(
 
     logger.info(f"[PROVISIONING] Starting enterprise pipeline for {business_name} ({email}) - Industry: {industry_clean}")
 
+    # 0. Check for existing user with this email
+    stmt_existing = select(User).where(User.email.ilike(email.strip()))
+    res_existing = await db_session.execute(stmt_existing)
+    if res_existing.scalar_one_or_none():
+        raise ValueError(f"A user with email '{email}' already exists.")
+
     # 1. Create Business Tenant
     new_business = Business(
         id=business_id,
@@ -75,13 +81,59 @@ async def provision_tenant(
     )
     db_session.add(new_business)
 
-    # 2. Assign Operating Subscription Status (Internal record)
+    # 2. Ensure Plan Exists in subscription_plans (satisfy Foreign Key constraint)
+    target_plan_id = "custom_operating_system"
+    stmt_plan = select(SubscriptionPlan).where(SubscriptionPlan.id == target_plan_id)
+    res_plan = await db_session.execute(stmt_plan)
+    existing_plan = res_plan.scalar_one_or_none()
+
+    if not existing_plan:
+        try:
+            logger.info(f"[PROVISIONING] Seeding missing SubscriptionPlan '{target_plan_id}'...")
+            custom_plan = SubscriptionPlan(
+                id=target_plan_id,
+                name="Custom Operating System",
+                price=None,
+                token_allocation=initial_tokens,
+                conversation_limit=-1,
+                is_public=False,
+                requires_contact=True,
+                feature_flags={
+                    "whatsapp_bot": True,
+                    "web_chat": True,
+                    "advanced_workflows": True,
+                    "crm": True,
+                    "email": True,
+                    "analytics_basic": True,
+                    "analytics_full": True,
+                    "scheduling": True,
+                    "api_access": True,
+                    "industry_os": True
+                },
+                limits={
+                    "max_workflows": -1,
+                    "max_ai_messages": -1
+                }
+            )
+            db_session.add(custom_plan)
+            await db_session.flush()
+        except Exception as plan_err:
+            logger.warning(f"[PROVISIONING] Could not seed '{target_plan_id}' plan ({plan_err}), resolving fallback...")
+            res_ent = await db_session.execute(select(SubscriptionPlan.id).where(SubscriptionPlan.id == "enterprise"))
+            if res_ent.scalar_one_or_none():
+                target_plan_id = "enterprise"
+            else:
+                res_starter = await db_session.execute(select(SubscriptionPlan.id).where(SubscriptionPlan.id == "starter"))
+                if res_starter.scalar_one_or_none():
+                    target_plan_id = "starter"
+
+    # Assign Operating Subscription Status (Internal record)
     now = datetime.utcnow()
     pilot_end = now + timedelta(days=pilot_days) if pilot_enabled else None
     
     new_sub = BusinessSubscription(
         business_id=business_id,
-        plan_id="custom_operating_system",
+        plan_id=target_plan_id,
         status="active",
         current_period_start=now,
         current_period_end=pilot_end if pilot_enabled else (now + timedelta(days=365)),
@@ -251,15 +303,7 @@ async def provision_tenant(
     )
     db_session.add(obs)
 
-    # 11. Clone Default Booking Confirmation Workflow
-    try:
-        payload = get_booking_workflow_payload(business_id)
-        await workflow_engine.create_workflow(business_id, payload)
-        logger.info(f"[PROVISIONING] Successfully cloned default workflow for {business_id}")
-    except Exception as e:
-        logger.error(f"[PROVISIONING] Failed to clone default workflow: {e}")
-
-    # 12. Record Audit Log for Business Creation
+    # 11. Record Audit Log for Business Creation
     audit = AdminAuditLog(
         admin_id=admin_id,
         admin_email="system@interac.ai" if not admin_id else "admin@interac.ai",
@@ -277,6 +321,16 @@ async def provision_tenant(
     )
     db_session.add(audit)
 
+    # Commit business, subscription, and related models before background workflow cloning
     await db_session.commit()
+
+    # 12. Clone Default Booking Confirmation Workflow (After commit so foreign keys & db locks are clear)
+    try:
+        payload = get_booking_workflow_payload(business_id)
+        await workflow_engine.create_workflow(business_id, payload)
+        logger.info(f"[PROVISIONING] Successfully cloned default workflow for {business_id}")
+    except Exception as e:
+        logger.error(f"[PROVISIONING] Failed to clone default workflow: {e}")
+
     logger.info(f"[PROVISIONING] Enterprise tenant {business_id} fully provisioned with custom entitlements.")
     return {"business_id": business_id, "user_id": user_id, "email": email}
