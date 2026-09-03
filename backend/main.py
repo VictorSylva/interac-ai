@@ -2241,6 +2241,33 @@ async def web_chat(body: WebMessage):
                 ai_reply = ai_reply.replace(hotel_res_match.group(0), "").strip()
             except Exception as res_err:
                 logger.error(f"[Chat] Error parsing hotel reservation action: {res_err}")
+        else:
+            # Fallback Parser: Auto-extract booking if LLM generated a confirmation message without the raw action tag
+            lower_reply = ai_reply.lower()
+            is_confirmation = any(term in lower_reply for term in ["confirmation for", "here's the confirmation", "here is the confirmation", "reservation is confirmed", "booking is confirmed", "confirmed your reservation", "we look forward to hosting"])
+            has_room = any(term in lower_reply for term in ["room:", "suite", "category:"])
+            if is_confirmation and has_room:
+                try:
+                    from services.hotel_reservation_service import hotel_reservation_service
+                    cust_phone = getattr(lead_obj, 'phone', None) if lead_obj else None
+                    cust_email = getattr(lead_obj, 'email', None) if lead_obj else None
+                    parsed_booking = await hotel_reservation_service.extract_booking_from_text(
+                        business_id=real_business_id,
+                        text=ai_reply,
+                        user_message=body.message,
+                        customer_phone=cust_phone
+                    )
+                    if parsed_booking:
+                        await hotel_reservation_service.create_reservation_from_ai(
+                            business_id=real_business_id,
+                            reservation_data=parsed_booking,
+                            customer_phone=cust_phone,
+                            customer_email=cust_email,
+                            platform="web"
+                        )
+                        logger.info(f"[Chat Fallback] Successfully auto-extracted hotel reservation for {parsed_booking.get('guest_name')} (Web User {body.user_id})")
+                except Exception as fb_err:
+                    logger.error(f"[Chat Fallback] Error in fallback reservation extraction: {fb_err}")
 
         # Final cleanup of any remaining internal markers
         ai_reply = re.sub(r'\[ACTION:.*?\]', '', ai_reply, flags=re.DOTALL).strip()

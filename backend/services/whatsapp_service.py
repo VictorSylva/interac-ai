@@ -206,6 +206,30 @@ async def process_whatsapp_message_task(from_number: str, msg_body: str, phone_i
                 logger.info(f"[WhatsApp] Processed Hotel Reservation for guest {reservation_data.get('guest_name')} ({from_number})")
             except Exception as res_err:
                 logger.error(f"[WhatsApp] Error parsing hotel reservation action: {res_err}")
+        else:
+            # Fallback Parser: Auto-extract booking if LLM generated a confirmation message without the raw action tag
+            lower_reply = ai_reply.lower()
+            is_confirmation = any(term in lower_reply for term in ["confirmation for", "here's the confirmation", "here is the confirmation", "reservation is confirmed", "booking is confirmed", "confirmed your reservation", "we look forward to hosting"])
+            has_room = any(term in lower_reply for term in ["room:", "suite", "category:"])
+            if is_confirmation and has_room:
+                try:
+                    from .hotel_reservation_service import hotel_reservation_service
+                    parsed_booking = await hotel_reservation_service.extract_booking_from_text(
+                        business_id=business_id,
+                        text=ai_reply,
+                        user_message=msg_body,
+                        customer_phone=from_number
+                    )
+                    if parsed_booking:
+                        await hotel_reservation_service.create_reservation_from_ai(
+                            business_id=business_id,
+                            reservation_data=parsed_booking,
+                            customer_phone=from_number,
+                            platform="whatsapp"
+                        )
+                        logger.info(f"[WhatsApp Fallback] Successfully auto-extracted hotel reservation for {parsed_booking.get('guest_name')} ({from_number})")
+                except Exception as fb_err:
+                    logger.error(f"[WhatsApp Fallback] Error in fallback reservation extraction: {fb_err}")
 
         # Analysis Tags
         analysis_match = re.search(r'\[ANALYSIS:\s*(?P<intent>.*?)\s*\|\s*(?P<sentiment>.*?)\s*\]', ai_reply, re.IGNORECASE)

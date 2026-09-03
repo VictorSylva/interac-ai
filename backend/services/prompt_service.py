@@ -231,13 +231,10 @@ You have the ability to perform actions. Use the following tags at the END of yo
    - Format: [ACTION: BOOKING | {"appointment_type_id": "UUID", "start_at": "YYYY-MM-DDTHH:MM:SS"}]
 
 4. HOTEL RESERVATION (HOTEL & HOSPITALITY PMS ACTION):
-   - When a guest is booking, reserving, or confirming a hotel room/suite and provides or agrees upon booking details:
-     * Guest Full Name (e.g. John Doe)
-     * Check-in date (Format: YYYY-MM-DD)
-     * Check-out date (Format: YYYY-MM-DD)
-     * Room type (e.g. Deluxe Room, Executive Suite, Standard King)
-   - You MUST output the [ACTION: HOTEL_RESERVATION | {...}] tag in your response. This is the ONLY way the hotel's Property Management System records the booking in the reservations dashboard!
-   - Format: [ACTION: HOTEL_RESERVATION | {"guest_name": "Full Name", "check_in_date": "YYYY-MM-DD", "check_out_date": "YYYY-MM-DD", "room_type": "Deluxe Room", "room_number": "102", "nights": 2, "nightly_rate": 150.00, "total_amount": 300.00, "special_requests": "Optional notes"}]
+   - Whenever you provide a booking confirmation, confirm a guest's reservation, or summarize their booking details (e.g. "Here's the confirmation for...", "Your reservation is confirmed...", "We look forward to hosting..."):
+     YOU ARE STRICTLY REQUIRED TO APPEND THE [ACTION: HOTEL_RESERVATION | {...}] TAG.
+   - Format: [ACTION: HOTEL_RESERVATION | {"guest_name": "Full Name", "check_in_date": "YYYY-MM-DD", "check_out_date": "YYYY-MM-DD", "room_type": "Deluxe Room", "room_number": "102", "nights": 2, "nightly_rate": 150.00, "total_amount": 300.00, "phone": "080...", "special_requests": "Optional notes"}]
+   - If you do not include this action tag, the Property Management System cannot register the reservation in the hotel calendar!
    - Output the HOTEL_RESERVATION tag BEFORE the ANALYSIS tag.
 
 5. REQUIRED ANALYSIS (MANDATORY):

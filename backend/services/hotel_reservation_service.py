@@ -195,6 +195,163 @@ class HotelReservationService:
         return "\n".join(lines)
 
     @classmethod
+    async def extract_booking_from_text(
+        cls,
+        business_id: str,
+        text: str,
+        user_message: str = "",
+        customer_phone: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fallback parser that extracts hotel reservation details if the AI model generated a
+        booking confirmation message to the guest but omitted the raw [ACTION: HOTEL_RESERVATION] tag.
+        """
+        import re
+        from datetime import datetime, timedelta
+
+        lower = text.lower()
+        if not any(k in lower for k in ["confirmation", "confirm", "reserved", "booked", "look forward to hosting"]):
+            return None
+
+        # 1. Extract Guest Name
+        guest_name = None
+        name_match = re.search(r"(?:confirmation for|reservation for|booking for|hosting)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", text)
+        if name_match:
+            guest_name = name_match.group(1).strip()
+        elif user_message:
+            um_name = re.search(r"(?:for|name is|guest is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)", user_message)
+            if um_name:
+                guest_name = um_name.group(1).strip()
+
+        # 2. Extract Room Number and Category
+        room_number = None
+        room_type = None
+
+        rm_match = re.search(r"(?:Room|Suite):\s*([A-Za-z0-9\s]+?)(?:\s*\||\n|,|$)", text, re.IGNORECASE)
+        if rm_match:
+            room_number = rm_match.group(1).strip()
+            if "suite" in lower and "suite" not in room_number.lower():
+                full_sm = re.search(r"(Suite\s*[0-9]+)", text, re.IGNORECASE)
+                if full_sm:
+                    room_number = full_sm.group(1).strip()
+
+        cat_match = re.search(r"(?:Category|Room Type):\s*([A-Za-z0-9\s]+?)(?:\s*\||\n|,|$)", text, re.IGNORECASE)
+        if cat_match:
+            room_type = cat_match.group(1).strip()
+
+        # 3. Extract Contact / Phone
+        phone = customer_phone
+        phone_match = re.search(r"(?:Contact|Phone|Mobile|Tel):\s*([0-9\+\-\s]{7,20})", text, re.IGNORECASE)
+        if phone_match:
+            extracted_phone = re.sub(r"[^\d\+]", "", phone_match.group(1))
+            if len(extracted_phone) >= 7:
+                phone = extracted_phone
+
+        # 4. Extract Rates
+        nightly_rate = 0.0
+        total_amount = 0.0
+        rate_line_match = re.search(r"(?:Rate|Total|Price|Amount|Cost):\s*([^\n\r]+)", text, re.IGNORECASE)
+        if rate_line_match:
+            r_text = rate_line_match.group(1)
+            rates = re.findall(r"[₦\$]?\s*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,7})", r_text)
+            if rates:
+                parsed_rates = [float(r.replace(",", "").strip()) for r in rates]
+                if len(parsed_rates) == 1:
+                    nightly_rate = parsed_rates[0]
+                    total_amount = parsed_rates[0]
+                else:
+                    total_amount = max(parsed_rates)
+                    nightly_rate = min(parsed_rates)
+
+        # 5. Extract Dates
+        now = datetime.utcnow()
+        check_in = None
+        check_out = None
+
+        iso_dates = re.findall(r"\b(202[0-9]-[0-1][0-9]-[0-3][0-9])\b", text + " " + user_message)
+        if len(iso_dates) >= 2:
+            check_in = iso_dates[0]
+            check_out = iso_dates[1]
+        elif len(iso_dates) == 1:
+            check_in = iso_dates[0]
+            check_out = (datetime.strptime(check_in, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            weekdays = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6}
+            found_days = []
+            combo_text = (text + " " + user_message).lower()
+            for day_name, day_idx in weekdays.items():
+                if day_name in combo_text:
+                    found_days.append((combo_text.find(day_name), day_name, day_idx))
+            found_days.sort(key=lambda x: x[0])
+            
+            if found_days:
+                first_day_idx = found_days[0][2]
+                current_weekday = now.weekday()
+                days_ahead = (first_day_idx - current_weekday) % 7
+                if days_ahead == 0:
+                    days_ahead = 7
+                ci_dt = now + timedelta(days=days_ahead)
+                check_in = ci_dt.strftime("%Y-%m-%d")
+                
+                if len(found_days) > 1:
+                    second_day_idx = found_days[1][2]
+                    days_to_co = (second_day_idx - first_day_idx) % 7
+                    if days_to_co == 0:
+                        days_to_co = 1
+                    co_dt = ci_dt + timedelta(days=days_to_co)
+                    check_out = co_dt.strftime("%Y-%m-%d")
+                else:
+                    check_out = (ci_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            else:
+                check_in = now.strftime("%Y-%m-%d")
+                check_out = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # 6. Match against genuine room in directory
+        genuine_rooms = await cls.get_available_rooms_inventory(business_id)
+        matched_room = None
+
+        if room_number:
+            rn_clean = re.sub(r"[^\w]", "", room_number.lower())
+            for gr in genuine_rooms:
+                gr_clean = re.sub(r"[^\w]", "", gr["room_number"].lower())
+                if rn_clean == gr_clean or rn_clean in gr_clean or gr_clean in rn_clean:
+                    matched_room = gr
+                    break
+
+        if not matched_room and room_type:
+            rt_clean = room_type.lower()
+            for gr in genuine_rooms:
+                if rt_clean in gr["room_type"].lower():
+                    matched_room = gr
+                    break
+
+        if not matched_room and genuine_rooms:
+            matched_room = genuine_rooms[0]
+
+        if not matched_room:
+            return None
+
+        final_room_number = matched_room["room_number"]
+        final_room_type = matched_room["room_type"]
+        if nightly_rate <= 0:
+            nightly_rate = matched_room["nightly_rate"]
+        if total_amount <= 0:
+            total_amount = nightly_rate
+
+        return {
+            "guest_name": guest_name or "Hotel Guest",
+            "room_number": final_room_number,
+            "room_type": final_room_type,
+            "room_id": matched_room.get("id"),
+            "check_in_date": check_in,
+            "check_out_date": check_out,
+            "nightly_rate": nightly_rate,
+            "total_amount": total_amount,
+            "phone": phone or customer_phone or "",
+            "booking_source": "WhatsApp AI"
+        }
+
+    @classmethod
     async def create_reservation_from_ai(
         cls,
         business_id: str,

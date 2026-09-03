@@ -99,12 +99,27 @@ export default function Conversations() {
     registerPush();
   }, [registerPush]);
 
+  const getAuthHeaders = (includeJson = true) => {
+    let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+    if (!token) {
+      try {
+        const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+        token = user.token || user.access_token;
+      } catch (e) {}
+    }
+    const headers = {};
+    if (includeJson) headers['Content-Type'] = 'application/json';
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  };
+
   // Fetch Business Config (Departments)
   useEffect(() => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     
-    fetch(`${apiUrl}/api/business-profile?business_id=${encodeURIComponent(businessId)}`)
+    fetch(`${API_BASE_URL}/api/business-profile?business_id=${encodeURIComponent(businessId)}`, {
+      headers: getAuthHeaders(false)
+    })
       .then(res => res.json())
       .then(data => {
         if (data && data.departments && Array.isArray(data.departments)) {
@@ -116,15 +131,14 @@ export default function Conversations() {
 
   // Fetch Conversations List
   useEffect(() => {
-    // Use business_id (UUID) or fallback to email (legacy/dev) or default
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    fetch(`${apiUrl}/api/conversations?business_id=${encodeURIComponent(businessId)}`, {
-        signal: controller.signal
+    fetch(`${API_BASE_URL}/api/conversations?business_id=${encodeURIComponent(businessId)}`, {
+        signal: controller.signal,
+        headers: getAuthHeaders(false)
     })
       .then(res => {
           clearTimeout(timeoutId);
@@ -158,9 +172,10 @@ export default function Conversations() {
   useEffect(() => {
     if (selectedChat) {
       const businessId = currentUser?.business_id || currentUser?.email || "default";
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-      fetch(`${apiUrl}/api/conversations/${selectedChat.id}/messages?business_id=${encodeURIComponent(businessId)}`)
+      fetch(`${API_BASE_URL}/api/conversations/${selectedChat.id}/messages?business_id=${encodeURIComponent(businessId)}`, {
+        headers: getAuthHeaders(false)
+      })
         .then(res => {
             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
             return res.json();
@@ -177,7 +192,6 @@ export default function Conversations() {
     if (!newMessage.trim() || !selectedChat) return;
     
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
     // Optimistic Update
     const msg = {
@@ -192,9 +206,9 @@ export default function Conversations() {
     setNewMessage('');
     
     try {
-      const res = await fetch(`${apiUrl}/api/conversations/${selectedChat.id}/reply`, {
+      const res = await fetch(`${API_BASE_URL}/api/conversations/${selectedChat.id}/reply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({
           message: sentText,
           business_id: businessId
@@ -219,12 +233,11 @@ export default function Conversations() {
     if (!selectedChat) return;
 
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
     try {
-      const res = await fetch(`${apiUrl}/api/conversations/${selectedChat.id}/resolve`, {
+      const res = await fetch(`${API_BASE_URL}/api/conversations/${selectedChat.id}/resolve`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ business_id: businessId })
       });
 
@@ -242,12 +255,11 @@ export default function Conversations() {
   const handleAssignToMe = async () => {
     if (!selectedChat) return;
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     
     try {
-        await fetch(`${apiUrl}/api/conversations/${selectedChat.id}/reply`, {
+        await fetch(`${API_BASE_URL}/api/conversations/${selectedChat.id}/reply`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(true),
             body: JSON.stringify({
                 message: "System: Agent claimed conversation",
                 business_id: businessId,
