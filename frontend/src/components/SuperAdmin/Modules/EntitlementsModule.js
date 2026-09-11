@@ -38,13 +38,20 @@ export default function EntitlementsModule() {
   // Editable local state of entitlements
   const [localEntitlements, setLocalEntitlements] = useState([]);
 
-  useEffect(() => {
-    fetchBusinesses();
-  }, []);
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
 
   const fetchBusinesses = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?user_id=${currentUser?.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setBusinesses(data);
@@ -58,11 +65,18 @@ export default function EntitlementsModule() {
     }
   };
 
+  useEffect(() => {
+    fetchBusinesses();
+  }, [currentUser]);
+
   const loadBusinessEntitlements = async (bid) => {
     if (!bid) return;
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${bid}/detail?user_id=${currentUser?.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${bid}/detail?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       setTenantBundle(data);
 

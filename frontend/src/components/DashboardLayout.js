@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, 
   Calendar, Phone, Activity, Shield, Check, ShoppingCart, Layers, Heart, Landmark,
-  UserCheck, Key, Briefcase, Wrench, Coffee, Package, Receipt, Globe
+  UserCheck, Key, Briefcase, Wrench, Coffee, Package, Receipt, Globe, Sliders
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config';
@@ -113,6 +113,15 @@ export default function DashboardLayout() {
     }
   };
 
+  const isSuperAdminOrOwner = (
+    userRole === 'super_admin' || 
+    userRole === 'owner' || 
+    currentUser?.role === 'super_admin' || 
+    currentUser?.role === 'owner' ||
+    currentUser?.email === 'interacai.int@gmail.com' ||
+    currentUser?.email === 'mbasitisylva@gmail.com'
+  );
+
   const baseMenuItems = [
     { icon: LayoutDashboard, label: 'Home', path: '/dashboard', roles: ['owner', 'admin', 'support_agent'] },
     { icon: MessageSquare, label: 'Conversations', path: '/dashboard/conversations', roles: ['owner', 'admin', 'support_agent'] },
@@ -128,6 +137,9 @@ export default function DashboardLayout() {
     { icon: Layers, label: 'Industry Modules', path: '/dashboard/modules', roles: ['owner', 'admin'] },
     { icon: Settings, label: 'Settings & Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Billing & Subscription', path: '/dashboard/subscription', roles: ['owner', 'admin'] },
+    ...(isSuperAdminOrOwner ? [
+      { icon: Sliders, label: 'Control Center (Super Admin)', path: '/super-admin', roles: ['owner', 'super_admin'] }
+    ] : [])
   ];
 
   // Dynamically inject industry module UI extension routes with permission validations

@@ -43,15 +43,21 @@ export default function BusinessesModule() {
     const [initialTokens, setInitialTokens] = useState(10000000);
     const [accountMgr, setAccountMgr] = useState('Victor Sylva');
 
-    useEffect(() => {
-        fetchBusinesses();
-    }, []);
+    const getAuthHeaders = () => {
+        const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+        return {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        };
+    };
 
     const fetchBusinesses = async () => {
-        if (!currentUser) return;
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?include_deleted=true&user_id=${currentUser.id}`);
+            const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+            const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?include_deleted=true&user_id=${encodeURIComponent(uid)}`, {
+                headers: getAuthHeaders()
+            });
             const data = await res.json();
             if (Array.isArray(data)) {
                 setBusinesses(data);
@@ -63,13 +69,17 @@ export default function BusinessesModule() {
         }
     };
 
+    useEffect(() => {
+        fetchBusinesses();
+    }, [currentUser]);
+
     const toggleStatus = async (businessId, currentStatus) => {
-        if (!currentUser) return;
+        const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
         const newStatus = currentStatus === 'suspended' ? 'active' : 'suspended';
         try {
-            await fetch(`${API_BASE_URL}/api/super-admin/businesses/${businessId}/status?user_id=${currentUser.id}`, {
+            await fetch(`${API_BASE_URL}/api/super-admin/businesses/${businessId}/status?user_id=${encodeURIComponent(uid)}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ status: newStatus })
             });
             fetchBusinesses();
@@ -79,11 +89,13 @@ export default function BusinessesModule() {
     };
 
     const handleSoftDelete = async () => {
-        if (!selectedBusiness || confirmName !== selectedBusiness.name || !currentUser) return;
+        if (!selectedBusiness || confirmName !== selectedBusiness.name) return;
+        const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
 
         try {
-            const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${selectedBusiness.business_id}?user_id=${currentUser.id}`, {
-                method: 'DELETE'
+            const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${selectedBusiness.business_id}?user_id=${encodeURIComponent(uid)}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
             });
             if (res.ok) {
                 setShowDeleteModal(false);
@@ -96,10 +108,11 @@ export default function BusinessesModule() {
     };
 
     const reactivateBusiness = async (businessId) => {
-        if (!currentUser) return;
+        const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
         try {
-            await fetch(`${API_BASE_URL}/api/super-admin/businesses/${businessId}/reactivate?user_id=${currentUser.id}`, {
-                method: 'POST'
+            await fetch(`${API_BASE_URL}/api/super-admin/businesses/${businessId}/reactivate?user_id=${encodeURIComponent(uid)}`, {
+                method: 'POST',
+                headers: getAuthHeaders()
             });
             fetchBusinesses();
         } catch (err) {
@@ -108,15 +121,16 @@ export default function BusinessesModule() {
     };
 
     const handleProvisionBusiness = async () => {
-        if (!newBizName || !newBizEmail || !newBizPassword || !currentUser) {
+        if (!newBizName || !newBizEmail || !newBizPassword) {
             alert('Please fill all required tenant fields.');
             return;
         }
         setProvisioning(true);
+        const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
         try {
-            const res = await fetch(`${API_BASE_URL}/api/super-admin/provision-business?user_id=${currentUser.id}`, {
+            const res = await fetch(`${API_BASE_URL}/api/super-admin/provision-business?user_id=${encodeURIComponent(uid)}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({
                     business_name: newBizName,
                     email: newBizEmail,

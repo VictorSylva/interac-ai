@@ -30,11 +30,34 @@ class ModuleRegistryService:
         return [mod.manifest for mod in self._registered_modules.values()]
 
     def get_module(self, module_id: str) -> Optional[BaseIndustryModule]:
-        """Retrieves a registered module by its unique identifier."""
-        return self._registered_modules.get(module_id)
+        """Retrieves a registered module by its unique identifier (normalizing module_ prefix)."""
+        if not module_id:
+            return None
+        if module_id in self._registered_modules:
+            return self._registered_modules[module_id]
+        
+        # Check without module_ prefix
+        clean_id = module_id.replace("module_", "")
+        if clean_id in self._registered_modules:
+            return self._registered_modules[clean_id]
+            
+        # Check with module_ prefix
+        prefixed_id = f"module_{clean_id}"
+        if prefixed_id in self._registered_modules:
+            return self._registered_modules[prefixed_id]
+            
+        return None
 
     async def get_installed_modules_for_org(self, org_id: str, db_session=None) -> List[IndustryModuleManifest]:
         """Returns manifests of modules installed/active for a specific organization."""
+        # Special Master Platform HQ override: interacAi always has access to all industry modules for platform-wide testing
+        if org_id and org_id.lower() in [
+            "0bbd48c4-b066-435a-be3d-c095b55897c6",
+            "interac_hq",
+            "interacai.int@gmail.com"
+        ]:
+            return self.list_available_modules()
+
         # Load from database if cache is empty
         if org_id not in self._org_active_modules:
             self._org_active_modules[org_id] = []
@@ -58,7 +81,7 @@ class ModuleRegistryService:
         manifests = []
         for mod_id in active_ids:
             mod = self.get_module(mod_id)
-            if mod:
+            if mod and mod.manifest not in manifests:
                 manifests.append(mod.manifest)
         return manifests
 

@@ -34,14 +34,20 @@ export default function InvoicesModule() {
     { description: 'WhatsApp Intelligence & AI Copilot Concierge Engine', quantity: 1, unit_price: 150000 }
   ]);
 
-  useEffect(() => {
-    fetchInvoices();
-    fetchBusinesses();
-  }, []);
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
 
   const fetchInvoices = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/invoices?user_id=${currentUser?.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/invoices?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setInvoices(data);
@@ -55,7 +61,10 @@ export default function InvoicesModule() {
 
   const fetchBusinesses = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?user_id=${currentUser?.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setBusinesses(data);
@@ -65,6 +74,11 @@ export default function InvoicesModule() {
       console.error(e);
     }
   };
+
+  useEffect(() => {
+    fetchInvoices();
+    fetchBusinesses();
+  }, [currentUser]);
 
   const addItemRow = () => {
     setItems([...items, { description: '', quantity: 1, unit_price: 0 }]);

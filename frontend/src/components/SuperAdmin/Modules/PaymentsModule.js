@@ -10,6 +10,7 @@ import {
   Download
 } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { API_BASE_URL } from '../../../config';
 
 export default function PaymentsModule() {
   const { currentUser } = useAuth();
@@ -17,16 +18,21 @@ export default function PaymentsModule() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    fetchPayments();
-  }, []);
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
 
   const fetchPayments = async () => {
-    if (!currentUser) return;
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/super-admin/payments?user_id=${currentUser.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/payments?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setPayments(data);
@@ -37,6 +43,10 @@ export default function PaymentsModule() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchPayments();
+  }, [currentUser]);
 
   const filteredPayments = payments.filter(p => 
     (p.business_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||

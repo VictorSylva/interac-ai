@@ -24,17 +24,18 @@ export default function DashboardModule() {
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
     setLoading(true);
     try {
-      const uid = currentUser?.id || currentUser?.uid || '';
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      };
       const [statsRes, logsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/super-admin/stats?user_id=${uid}`),
-        fetch(`${API_BASE_URL}/api/super-admin/logs/system?limit=4&user_id=${uid}`)
+        fetch(`${API_BASE_URL}/api/super-admin/stats?user_id=${encodeURIComponent(uid)}`, { headers }),
+        fetch(`${API_BASE_URL}/api/super-admin/logs/system?limit=4&user_id=${encodeURIComponent(uid)}`, { headers })
       ]);
       if (statsRes.ok) {
         const statsData = await statsRes.json();
@@ -50,6 +51,10 @@ export default function DashboardModule() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchData();
+  }, [currentUser]);
 
   return (
     <div className="p-8">

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { auth } from '../firebase';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 import { API_BASE_URL } from '../config';
@@ -18,51 +18,21 @@ export function AuthProvider({ children }) {
   const activeRole = previewRole || currentUser?.role || null;
   const activeDept = previewDept || currentUser?.department || 'general';
 
-  function setLocalPreview(dept, role) {
+  const setLocalPreview = useCallback((dept, role) => {
     setPreviewDept(dept);
     setPreviewRole(role);
     localStorage.setItem('interact_preview_dept', dept);
     localStorage.setItem('interact_preview_role', role);
-  }
+  }, []);
 
-  function clearLocalPreview() {
+  const clearLocalPreview = useCallback(() => {
     setPreviewDept(null);
     setPreviewRole(null);
     localStorage.removeItem('interact_preview_dept');
     localStorage.removeItem('interact_preview_role');
-  }
+  }, []);
 
-  function signup(email, password, businessName = "New Business") {
-    return fetch(`${API_BASE_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, business_name: businessName })
-    }).then(async res => {
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.detail || "Registration failed");
-        }
-        await res.json();
-        // Automatically login the newly created user
-        return login(email, password);
-    });
-  }
-
-  async function fetchWithRetry(url, options, retries = 2, delayMs = 2500) {
-    try {
-      const res = await fetch(url, options);
-      return res;
-    } catch (err) {
-      if (retries > 0) {
-        console.warn(`[Auth] Backend cold start detected. Retrying request to ${url} in ${delayMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
-        return fetchWithRetry(url, options, retries - 1, delayMs);
-      }
-      throw err;
-    }
-  }
-
-  function login(email, password) {
+  const login = useCallback((email, password) => {
     return fetchWithRetry(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -78,17 +48,45 @@ export function AuthProvider({ children }) {
         localStorage.setItem('interact_user', JSON.stringify(user));
         return user;
     });
-  }
+  }, []);
 
-
-  function logout() {
+  const logout = useCallback(() => {
     setCurrentUser(null);
     clearLocalPreview();
     localStorage.removeItem('interact_user');
     return Promise.resolve();
+  }, [clearLocalPreview]);
+
+  const signup = useCallback((email, password, businessName = "New Business") => {
+    return fetch(`${API_BASE_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, business_name: businessName })
+    }).then(async res => {
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.detail || "Registration failed");
+        }
+        await res.json();
+        return login(email, password);
+    });
+  }, [login]);
+
+  async function fetchWithRetry(url, options, retries = 2, delayMs = 2500) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      if (retries > 0) {
+        console.warn(`[Auth] Backend cold start detected. Retrying request to ${url} in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return fetchWithRetry(url, options, retries - 1, delayMs);
+      }
+      throw err;
+    }
   }
 
-  function forgotPassword(email) {
+  const forgotPassword = useCallback((email) => {
     return fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,9 +98,9 @@ export function AuthProvider({ children }) {
         }
         return res.json();
     });
-  }
+  }, []);
 
-  function resetPassword(token, newPassword) {
+  const resetPassword = useCallback((token, newPassword) => {
     return fetch(`${API_BASE_URL}/api/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,7 +112,7 @@ export function AuthProvider({ children }) {
         }
         return res.json();
     });
-  }
+  }, []);
 
   useEffect(() => {
     // Check localStorage on load

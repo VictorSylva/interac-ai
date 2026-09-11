@@ -9,23 +9,34 @@ import {
   AlertTriangle,
   CheckCircle2
 } from 'lucide-react';
+import { useAuth } from '../../../contexts/AuthContext';
+import { API_BASE_URL } from '../../../config';
 
 export default function SupportToolsModule() {
+  const { currentUser } = useAuth();
   const [targetBusinessId, setTargetBusinessId] = useState('');
   const [tokenAmount, setTokenAmount] = useState(1000);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
 
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   const handleCreditTokens = async () => {
     if (!targetBusinessId) return;
     setLoading(true);
     setMessage(null);
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
     
     try {
-      const res = await fetch(`${apiUrl}/api/super-admin/businesses/${targetBusinessId}/credit-tokens`, {
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${targetBusinessId}/credit-tokens?user_id=${encodeURIComponent(uid)}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ amount: tokenAmount })
       });
       

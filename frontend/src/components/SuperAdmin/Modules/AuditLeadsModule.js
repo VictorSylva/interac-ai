@@ -21,13 +21,20 @@ export default function AuditLeadsModule() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  useEffect(() => {
-    fetchLeads();
-  }, []);
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
 
   const fetchLeads = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/leads/audits?user_id=${currentUser?.id}`);
+      const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/leads/audits?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setLeads(data);
@@ -39,11 +46,16 @@ export default function AuditLeadsModule() {
     }
   };
 
+  useEffect(() => {
+    fetchLeads();
+  }, [currentUser]);
+
   const handleUpdateStatus = async (leadId, newStatus) => {
+    const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
     try {
-      const res = await fetch(`${API_BASE_URL}/api/super-admin/leads/audits/${leadId}/status?user_id=${currentUser?.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/super-admin/leads/audits/${leadId}/status?user_id=${encodeURIComponent(uid)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ status: newStatus })
       });
       if (res.ok) {

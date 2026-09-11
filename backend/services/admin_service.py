@@ -23,15 +23,28 @@ logger = logging.getLogger(__name__)
 
 class AdminService:
     async def check_is_super_admin(self, user_id: str):
-        """Checks if a user has super_admin or admin role."""
-        if not user_id:
+        """Checks if a user has super_admin, admin, or platform master privileges."""
+        if not user_id or str(user_id).strip().lower() in ["undefined", "null", ""]:
             return False
+            
+        clean_id = str(user_id).strip()
+        # Direct email / master check
+        if clean_id.lower() in ["interacai.int@gmail.com", "mbasitisylva@gmail.com"]:
+            return True
+            
         async with AsyncSessionLocal() as session:
             try:
-                stmt = select(User).where(User.id == user_id)
+                from sqlalchemy import or_
+                stmt = select(User).where(or_(User.id == clean_id, User.email.ilike(clean_id)))
                 result = await session.execute(stmt)
                 user = result.scalar_one_or_none()
-                return user and user.role in ["super_admin", "admin", "owner"]
+                if user:
+                    return (
+                        user.role in ["super_admin", "admin", "owner"] or
+                        user.email.lower() in ["interacai.int@gmail.com", "mbasitisylva@gmail.com"] or
+                        user.business_id in ["0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"]
+                    )
+                return False
             except Exception as e:
                 logger.error(f"Error checking admin status: {e}")
                 return False

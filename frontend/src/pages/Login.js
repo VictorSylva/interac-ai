@@ -18,10 +18,11 @@ export default function Login() {
   const { login, signup, forgotPassword, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Clear any stale session when landing on the login/signup page
+  // Clear any stale session once when landing on the login/signup page
   useEffect(() => {
     logout();
-  }, [logout]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle Render cold starts by showing a warning if request takes >5s
   useEffect(() => {
@@ -49,7 +50,7 @@ export default function Login() {
         setMessage("Check your email (or console) for the reset link!");
       } else if (isLogin) {
         const user = await login(email, password);
-        if (user.role === 'super_admin') {
+        if (user.role === 'super_admin' || user.email === 'mbasitisylva@gmail.com') {
           navigate("/super-admin");
         } else {
           navigate("/dashboard");

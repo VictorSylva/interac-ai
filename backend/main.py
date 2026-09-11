@@ -54,106 +54,175 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def ensure_special_admin_account():
-    logger.info("[Startup] Verifying special admin account exists and has the correct business ID...")
+    logger.info("[Startup] Verifying special admin accounts exist and have the correct permissions & modules...")
     try:
         from database.session import AsyncSessionLocal
         from services.auth_service import get_password_hash
         from sqlalchemy import select, delete
         from database.models.general import User, Business, BusinessSettings
         from database.models.billing import BusinessSubscription, TokenWallet
+        from database.models.entitlement import CommercialProfile
         import uuid
         
+        all_modules = [
+            "module_retail", "module_bible_translation", "module_estate", "module_hospital",
+            "module_hotels", "module_nigeria_irs", "module_church", "module_government",
+            "module_manufacturing", "module_education", "module_agriculture",
+            "retail", "bible_translation", "estate", "hospital",
+            "hotels", "nigeria_irs", "church", "government",
+            "manufacturing", "education", "agriculture"
+        ]
+
         async with AsyncSessionLocal() as session:
-            email = "interacai.int@gmail.com"
             special_bid = "0bbd48c4-b066-435a-be3d-c095b55897c6"
+            hq_bids = [special_bid, "INTERAC_HQ"]
             pwd_hash = get_password_hash("Setecs@55")
-            
-            # Make sure the Business itself exists first (so foreign key constraint is satisfied)
-            biz = await session.get(Business, special_bid)
-            if not biz:
-                biz = Business(id=special_bid, name="interacAi")
-                session.add(biz)
-                await session.flush()
-                logger.info(f"[Startup] Created special Business: {special_bid}")
-            
-            # 1. Ensure the user exists, is linked to special_bid, and has the correct password/role
-            stmt = select(User).where(User.email == email)
-            res = await session.execute(stmt)
-            users = res.scalars().all()
-            
-            needs_creation = True
+
+            # 1. Ensure master businesses exist
+            for bid in hq_bids:
+                biz = await session.get(Business, bid)
+                name = "interacAi" if bid == special_bid else "InteracAI System"
+                if not biz:
+                    biz = Business(id=bid, name=name, is_deleted=False)
+                    session.add(biz)
+                else:
+                    biz.name = name
+                    biz.is_deleted = False
+                    session.add(biz)
+            await session.flush()
+
+            # 2a. Master platform account: interacai.int@gmail.com
+            u_stmt = select(User).where(User.email == "interacai.int@gmail.com")
+            u_res = await session.execute(u_stmt)
+            users = u_res.scalars().all()
             if users:
-                # Keep the first user, update its business association, password, and role
                 primary_user = users[0]
                 primary_user.business_id = special_bid
                 primary_user.password_hash = pwd_hash
                 primary_user.role = "owner"
+                primary_user.department = "general"
+                primary_user.status = "active"
+                primary_user.email_verified = True
                 session.add(primary_user)
-                needs_creation = False
-                
-                # Clean up any duplicate user records if they exist
                 for duplicate_user in users[1:]:
                     await session.delete(duplicate_user)
-                logger.info(f"[Startup] Verified and updated existing user {email} to business {special_bid}")
-            
-
-            
-            # 3. Make sure the Subscription exists and is Active
-            sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == special_bid)
-            sub_res = await session.execute(sub_stmt)
-            sub = sub_res.scalar_one_or_none()
-            if not sub:
-                sub = BusinessSubscription(
-                    business_id=special_bid,
-                    plan_id="enterprise",
-                    status="active"
-                )
-                session.add(sub)
-                logger.info("[Startup] Created Enterprise subscription for special business")
+                logger.info(f"[Startup] Verified primary user interacai.int@gmail.com on business {special_bid}")
             else:
-                sub.plan_id = "enterprise"
-                sub.status = "active"
-                session.add(sub)
-                
-            # 4. Make sure the User exists
-            if needs_creation:
                 new_user = User(
-                    id=str(uuid.uuid4()),
+                    id="6637d297-b771-4ac4-ac03-694c7a538d42",
                     business_id=special_bid,
-                    email=email,
+                    email="interacai.int@gmail.com",
                     password_hash=pwd_hash,
-                    role="owner"
+                    role="owner",
+                    department="general",
+                    status="active",
+                    email_verified=True
                 )
                 session.add(new_user)
-                logger.info(f"[Startup] Created special User: {email} with business: {special_bid}")
-                
-            # 5. Make sure the TokenWallet exists
-            wallet = await session.get(TokenWallet, special_bid)
-            if not wallet:
-                wallet = TokenWallet(
-                    business_id=special_bid,
-                    sub_balance=1000000,
-                    payg_balance=0
-                )
-                session.add(wallet)
+                logger.info(f"[Startup] Created primary user interacai.int@gmail.com")
+
+            # 2b. Super Admin account: mbasitisylva@gmail.com
+            sa_stmt = select(User).where(User.email == "mbasitisylva@gmail.com")
+            sa_res = await session.execute(sa_stmt)
+            sa_users = sa_res.scalars().all()
+            if sa_users:
+                sa_user = sa_users[0]
+                sa_user.business_id = special_bid
+                sa_user.password_hash = pwd_hash
+                sa_user.role = "super_admin"
+                sa_user.department = "general"
+                sa_user.status = "active"
+                sa_user.email_verified = True
+                session.add(sa_user)
+                for duplicate_user in sa_users[1:]:
+                    await session.delete(duplicate_user)
+                logger.info(f"[Startup] Verified Super Admin user mbasitisylva@gmail.com on business {special_bid}")
             else:
-                wallet.sub_balance = 1000000
-                session.add(wallet)
-                
-            # 6. Make sure default Settings exist
-            settings_stmt = select(BusinessSettings).where(BusinessSettings.business_id == special_bid)
-            settings_res = await session.execute(settings_stmt)
-            settings = settings_res.scalar_one_or_none()
-            if not settings:
-                settings = BusinessSettings(
+                new_sa = User(
+                    id=str(uuid.uuid4()),
                     business_id=special_bid,
-                    description="Default settings for special business",
-                    tone="professional"
+                    email="mbasitisylva@gmail.com",
+                    password_hash=pwd_hash,
+                    role="super_admin",
+                    department="general",
+                    status="active",
+                    email_verified=True
                 )
-                session.add(settings)
-                
+                session.add(new_sa)
+                logger.info(f"[Startup] Created Super Admin user mbasitisylva@gmail.com")
+
+            # 3. Ensure Enterprise Subscriptions
+            for bid in hq_bids:
+                sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == bid)
+                sub_res = await session.execute(sub_stmt)
+                sub = sub_res.scalar_one_or_none()
+                if not sub:
+                    sub = BusinessSubscription(
+                        business_id=bid,
+                        plan_id="enterprise",
+                        status="active",
+                        conversation_limit=-1
+                    )
+                    session.add(sub)
+                else:
+                    sub.plan_id = "enterprise"
+                    sub.status = "active"
+                    sub.conversation_limit = -1
+                    session.add(sub)
+
+            # 4. Ensure Token Wallets
+            for bid in hq_bids:
+                wallet = await session.get(TokenWallet, bid)
+                if not wallet:
+                    wallet = TokenWallet(
+                        business_id=bid,
+                        sub_balance=10000000,
+                        payg_balance=1000000,
+                        status="active"
+                    )
+                    session.add(wallet)
+                else:
+                    wallet.sub_balance = max(wallet.sub_balance or 0, 10000000)
+                    wallet.status = "active"
+                    session.add(wallet)
+
+            # 5. Ensure BusinessSettings with all industry modules
+            for bid in hq_bids:
+                settings_stmt = select(BusinessSettings).where(BusinessSettings.business_id == bid)
+                settings_res = await session.execute(settings_stmt)
+                settings = settings_res.scalar_one_or_none()
+                if not settings:
+                    settings = BusinessSettings(
+                        business_id=bid,
+                        description="InteracAI Platform Master Operations and Testing HQ",
+                        tone="professional",
+                        installed_modules=all_modules
+                    )
+                    session.add(settings)
+                else:
+                    settings.installed_modules = all_modules
+                    session.add(settings)
+
+            # 6. Commercial Profile
+            for bid in hq_bids:
+                cp_stmt = select(CommercialProfile).where(CommercialProfile.business_id == bid)
+                cp_res = await session.execute(cp_stmt)
+                cp = cp_res.scalar_one_or_none()
+                if not cp:
+                    cp = CommercialProfile(
+                        business_id=bid,
+                        commercial_status="customer_active",
+                        billing_interval="lifetime",
+                        account_manager_name="Victor Sylva"
+                    )
+                    session.add(cp)
+                else:
+                    cp.commercial_status = "customer_active"
+                    cp.billing_interval = "lifetime"
+                    session.add(cp)
+
             await session.commit()
-            logger.info("[Startup] Special admin account setup verified successfully.")
+            logger.info("[Startup] Special admin accounts and industry modules setup verified successfully.")
             
     except Exception as e:
         logger.error(f"[Startup] Failed to verify special admin account: {e}", exc_info=True)

@@ -22,18 +22,32 @@ export default function LogsModule() {
   const [expandedLog, setExpandedLog] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   useEffect(() => {
     fetchLogs();
-  }, [activeSubTab]);
+  }, [activeSubTab, currentUser]);
 
   const fetchLogs = async () => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       let endpoint = '/api/super-admin/audit-logs';
       if (activeSubTab === 'system') endpoint = '/api/super-admin/logs/system';
       
-      const res = await fetch(`${API_BASE_URL}${endpoint}?user_id=${currentUser.id}`);
+      const uid = currentUser.id || currentUser.uid || currentUser.email || '';
+      const res = await fetch(`${API_BASE_URL}${endpoint}?user_id=${encodeURIComponent(uid)}`, {
+        headers: getAuthHeaders()
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setLogs(data);
