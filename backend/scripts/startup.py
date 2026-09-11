@@ -185,7 +185,7 @@ async def seed_platform_hq():
                     wallet.status = "active"
                     session.add(wallet)
 
-            # 5. Settings with all industry modules pre-installed
+            # 5. Settings with empty industry modules by default (user enables on demand)
             for bid in hq_bids:
                 set_stmt = select(BusinessSettings).where(BusinessSettings.business_id == bid)
                 set_res = await session.execute(set_stmt)
@@ -195,11 +195,8 @@ async def seed_platform_hq():
                         business_id=bid,
                         description="InteracAI Platform Master Operations and Testing HQ",
                         tone="professional",
-                        installed_modules=all_modules
+                        installed_modules=[]
                     )
-                    session.add(settings)
-                else:
-                    settings.installed_modules = all_modules
                     session.add(settings)
 
             # 6. Commercial Profile

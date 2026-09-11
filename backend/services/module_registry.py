@@ -50,34 +50,36 @@ class ModuleRegistryService:
 
     async def get_installed_modules_for_org(self, org_id: str, db_session=None) -> List[IndustryModuleManifest]:
         """Returns manifests of modules installed/active for a specific organization."""
-        # Special Master Platform HQ override: interacAi always has access to all industry modules for platform-wide testing
-        if org_id and org_id.lower() in [
-            "0bbd48c4-b066-435a-be3d-c095b55897c6",
-            "interac_hq",
-            "interacai.int@gmail.com"
-        ]:
-            return self.list_available_modules()
+        if not org_id:
+            return []
 
-        # Load from database if cache is empty
-        if org_id not in self._org_active_modules:
-            self._org_active_modules[org_id] = []
-            if db_session is not None:
-                try:
-                    from sqlalchemy import select
-                    from database.models.general import BusinessSettings
-                    stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
-                    res = await db_session.execute(stmt)
-                    settings = res.scalar_one_or_none()
-                    if settings and settings.installed_modules:
-                        import json
-                        if isinstance(settings.installed_modules, str):
-                            self._org_active_modules[org_id] = json.loads(settings.installed_modules)
-                        elif isinstance(settings.installed_modules, list):
-                            self._org_active_modules[org_id] = list(settings.installed_modules)
-                except Exception as e:
-                    logger.error(f"Error loading installed modules from DB for {org_id}: {e}")
+        local_session = False
+        if db_session is None:
+            from database.session import AsyncSessionLocal
+            db_session = AsyncSessionLocal()
+            local_session = True
 
-        active_ids = self._org_active_modules.get(org_id, [])
+        active_ids = []
+        try:
+            from sqlalchemy import select
+            from database.models.general import BusinessSettings
+            stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
+            res = await db_session.execute(stmt)
+            settings = res.scalar_one_or_none()
+            if settings and settings.installed_modules:
+                import json
+                if isinstance(settings.installed_modules, str):
+                    active_ids = json.loads(settings.installed_modules)
+                elif isinstance(settings.installed_modules, list):
+                    active_ids = list(settings.installed_modules)
+            self._org_active_modules[org_id] = active_ids
+        except Exception as e:
+            logger.error(f"Error loading installed modules from DB for {org_id}: {e}")
+            active_ids = self._org_active_modules.get(org_id, [])
+        finally:
+            if local_session:
+                await db_session.close()
+
         manifests = []
         for mod_id in active_ids:
             mod = self.get_module(mod_id)
@@ -91,59 +93,93 @@ class ModuleRegistryService:
         if not module:
             raise ValueError(f"Module '{module_id}' not found in platform registry.")
 
-        # Ensure cache contains org list
-        await self.get_installed_modules_for_org(org_id, db_session)
+        canon_id = module.manifest.id
 
-        if module_id not in self._org_active_modules[org_id]:
-            success = await module.on_install(org_id, db_session)
-            if success:
-                self._org_active_modules[org_id].append(module_id)
-                # Persist to database
-                if db_session is not None:
-                    try:
-                        from sqlalchemy import select
-                        from database.models.general import BusinessSettings
-                        stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
-                        res = await db_session.execute(stmt)
-                        settings = res.scalar_one_or_none()
-                        if settings:
-                            settings.installed_modules = list(self._org_active_modules[org_id])
-                            await db_session.commit()
-                    except Exception as e:
-                        logger.error(f"Error persisting installed modules to DB: {e}")
-                logger.info(f"Module '{module_id}' installed for Organization '{org_id}'")
+        local_session = False
+        if db_session is None:
+            from database.session import AsyncSessionLocal
+            db_session = AsyncSessionLocal()
+            local_session = True
+
+        try:
+            from sqlalchemy import select
+            from database.models.general import BusinessSettings
+            stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
+            res = await db_session.execute(stmt)
+            settings = res.scalar_one_or_none()
+            if not settings:
+                settings = BusinessSettings(business_id=org_id, installed_modules=[])
+                db_session.add(settings)
+
+            current_installed = list(settings.installed_modules or [])
+            clean_id = canon_id.replace("module_", "")
+            
+            # Check if either canonical or short name is already in installed list
+            already_installed = any(m in (canon_id, module_id, clean_id, f"module_{clean_id}") for m in current_installed)
+            if not already_installed:
+                success = await module.on_install(org_id, db_session)
+                current_installed.append(canon_id)
+                settings.installed_modules = current_installed
+                await db_session.commit()
+                self._org_active_modules[org_id] = current_installed
+                logger.info(f"Module '{canon_id}' installed for Organization '{org_id}'")
                 return True
-        return False
+            else:
+                self._org_active_modules[org_id] = current_installed
+                return True
+        except Exception as e:
+            logger.error(f"Error installing module {module_id} for {org_id}: {e}")
+            await db_session.rollback()
+            return False
+        finally:
+            if local_session:
+                await db_session.close()
 
     async def uninstall_module_for_org(self, org_id: str, module_id: str, db_session=None) -> bool:
         """Uninstalls/Disables an Industry Module for an organization."""
         module = self.get_module(module_id)
-        if not module:
+        canon_id = module.manifest.id if module else module_id
+        clean_id = canon_id.replace("module_", "")
+
+        local_session = False
+        if db_session is None:
+            from database.session import AsyncSessionLocal
+            db_session = AsyncSessionLocal()
+            local_session = True
+
+        try:
+            from sqlalchemy import select
+            from database.models.general import BusinessSettings
+            stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
+            res = await db_session.execute(stmt)
+            settings = res.scalar_one_or_none()
+            
+            current_installed = list(settings.installed_modules or []) if settings else []
+            updated_installed = [
+                m for m in current_installed
+                if m not in (canon_id, module_id, clean_id, f"module_{clean_id}")
+            ]
+
+            if settings:
+                settings.installed_modules = updated_installed
+                await db_session.commit()
+
+            if module:
+                try:
+                    await module.on_uninstall(org_id, db_session)
+                except Exception as uninst_err:
+                    logger.warning(f"Note on module on_uninstall for {module_id}: {uninst_err}")
+
+            self._org_active_modules[org_id] = updated_installed
+            logger.info(f"Module '{canon_id}' uninstalled for Organization '{org_id}'")
+            return True
+        except Exception as e:
+            logger.error(f"Error uninstalling module {module_id} for {org_id}: {e}")
+            await db_session.rollback()
             return False
-
-        # Ensure cache contains org list
-        await self.get_installed_modules_for_org(org_id, db_session)
-
-        if org_id in self._org_active_modules and module_id in self._org_active_modules[org_id]:
-            success = await module.on_uninstall(org_id, db_session)
-            if success:
-                self._org_active_modules[org_id].remove(module_id)
-                # Persist to database
-                if db_session is not None:
-                    try:
-                        from sqlalchemy import select
-                        from database.models.general import BusinessSettings
-                        stmt = select(BusinessSettings).where(BusinessSettings.business_id == org_id)
-                        res = await db_session.execute(stmt)
-                        settings = res.scalar_one_or_none()
-                        if settings:
-                            settings.installed_modules = list(self._org_active_modules[org_id])
-                            await db_session.commit()
-                    except Exception as e:
-                        logger.error(f"Error persisting installed modules after uninstall to DB: {e}")
-                logger.info(f"Module '{module_id}' uninstalled for Organization '{org_id}'")
-                return True
-        return False
+        finally:
+            if local_session:
+                await db_session.close()
 
 
 # Singleton Instance

@@ -86,16 +86,24 @@ export default function IndustryModulesPage() {
 
   const orgId = currentUser?.business_id || currentUser?.email || 'default';
 
+  const getAuthHeaders = () => {
+    const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+    };
+  };
+
   useEffect(() => {
     fetchModulesData();
-  }, [orgId]);
+  }, [orgId, currentUser]);
 
   const fetchModulesData = async () => {
     setLoading(true);
     try {
       const [availRes, instRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/v1/modules`),
-        fetch(`${API_BASE_URL}/api/v1/modules/installed?org_id=${encodeURIComponent(orgId)}`)
+        fetch(`${API_BASE_URL}/api/v1/modules`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE_URL}/api/v1/modules/installed?org_id=${encodeURIComponent(orgId)}`, { headers: getAuthHeaders() })
       ]);
 
       if (availRes.ok) {
@@ -104,7 +112,8 @@ export default function IndustryModulesPage() {
       }
       if (instRes.ok) {
         const installed = await instRes.json();
-        const installedSet = new Set((Array.isArray(installed) ? installed : installed.modules || []).map(m => m.id || m));
+        const installedList = Array.isArray(installed) ? installed : (installed.modules || []);
+        const installedSet = new Set(installedList.map(m => m.id || m));
         setInstalledModuleIds(installedSet);
       }
     } catch (err) {
@@ -121,7 +130,7 @@ export default function IndustryModulesPage() {
     try {
       const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ org_id: orgId, module_id: moduleId })
       });
 
@@ -129,17 +138,22 @@ export default function IndustryModulesPage() {
         const nextSet = new Set(installedModuleIds);
         if (isInstalled) {
           nextSet.delete(moduleId);
-          showToast(`Module '${moduleId}' disabled for your workspace.`);
+          // Also delete short name if present
+          nextSet.delete(moduleId.replace('module_', ''));
+          showToast(`Module '${moduleId}' disabled.`);
         } else {
           nextSet.add(moduleId);
-          showToast(`Module '${moduleId}' activated! UI, Copilot, & Entities updated.`);
+          showToast(`Module '${moduleId}' activated!`);
         }
         setInstalledModuleIds(nextSet);
         window.dispatchEvent(new Event('installedModulesChanged'));
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showToast(`Failed: ${errData.detail || 'Could not update module'}`);
       }
     } catch (err) {
-
       console.error("Error toggling module:", err);
+      showToast('Network error toggling module.');
     } finally {
       setTogglingModule(null);
     }

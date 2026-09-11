@@ -63,15 +63,19 @@ async def install_module(
     org_id = payload.get("org_id")
     module_id = payload.get("module_id")
 
-    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != org_id:
-        raise HTTPException(status_code=403, detail="Tenant mismatch")
-
     if not org_id or not module_id:
         raise HTTPException(status_code=400, detail="Missing required parameters: 'org_id' and 'module_id'")
 
+    from services.db_service import resolve_business_id
+    real_org_id = await resolve_business_id(org_id)
+    user_bid = await resolve_business_id(current_user.get("business_id", ""))
+
+    if current_user.get("role") not in ["super_admin", "owner"] and user_bid != real_org_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
+
     try:
-        success = await module_registry.install_module_for_org(org_id, module_id, db)
-        return {"success": success, "org_id": org_id, "module_id": module_id, "message": "Module installed successfully"}
+        success = await module_registry.install_module_for_org(real_org_id, module_id, db)
+        return {"success": success, "org_id": real_org_id, "module_id": module_id, "message": "Module installed successfully"}
     except ValueError as err:
         raise HTTPException(status_code=404, detail=str(err))
 
@@ -86,14 +90,18 @@ async def uninstall_module(
     org_id = payload.get("org_id")
     module_id = payload.get("module_id")
 
-    if current_user.get("role") not in ["super_admin"] and current_user.get("business_id") != org_id:
-        raise HTTPException(status_code=403, detail="Tenant mismatch")
-
     if not org_id or not module_id:
         raise HTTPException(status_code=400, detail="Missing required parameters: 'org_id' and 'module_id'")
 
-    success = await module_registry.uninstall_module_for_org(org_id, module_id, db)
-    return {"success": success, "org_id": org_id, "module_id": module_id, "message": "Module uninstalled successfully"}
+    from services.db_service import resolve_business_id
+    real_org_id = await resolve_business_id(org_id)
+    user_bid = await resolve_business_id(current_user.get("business_id", ""))
+
+    if current_user.get("role") not in ["super_admin", "owner"] and user_bid != real_org_id:
+        raise HTTPException(status_code=403, detail="Tenant mismatch")
+
+    success = await module_registry.uninstall_module_for_org(real_org_id, module_id, db)
+    return {"success": success, "org_id": real_org_id, "module_id": module_id, "message": "Module uninstalled successfully"}
 
 
 @router.post("/skills/execute")

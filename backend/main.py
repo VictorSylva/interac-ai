@@ -197,7 +197,7 @@ async def ensure_special_admin_account():
                     wallet.status = "active"
                     session.add(wallet)
 
-            # 5. Ensure BusinessSettings with all industry modules
+            # 5. Ensure BusinessSettings exists (empty modules by default, user enables on demand)
             for bid in hq_bids:
                 settings_stmt = select(BusinessSettings).where(BusinessSettings.business_id == bid)
                 settings_res = await session.execute(settings_stmt)
@@ -207,11 +207,8 @@ async def ensure_special_admin_account():
                         business_id=bid,
                         description="InteracAI Platform Master Operations and Testing HQ",
                         tone="professional",
-                        installed_modules=all_modules
+                        installed_modules=[]
                     )
-                    session.add(settings)
-                else:
-                    settings.installed_modules = all_modules
                     session.add(settings)
 
             # 6. Commercial Profile
@@ -3154,7 +3151,17 @@ async def maintenance_endpoint(req: dict):
             stmt = select(User)
             res = await session.execute(stmt)
             users_list = [{"id": u.id, "email": u.email, "role": u.role, "business_id": u.business_id, "status": u.status} for u in res.scalars().all()]
-            return {"status": "success", "users": users_list}
+        elif action == "clear_installed_modules":
+            from database.models.general import BusinessSettings
+            from services.module_registry import module_registry
+            biz_id = req.get("business_id", "0bbd48c4-b066-435a-be3d-c095b55897c6")
+            stmt = select(BusinessSettings).where(BusinessSettings.business_id == biz_id)
+            settings = (await session.execute(stmt)).scalar_one_or_none()
+            if settings:
+                settings.installed_modules = []
+                await session.commit()
+            module_registry._org_active_modules[biz_id] = []
+            return {"status": "success", "message": f"Cleared installed modules for {biz_id}"}
 
     return {"status": "unknown_action"}
 

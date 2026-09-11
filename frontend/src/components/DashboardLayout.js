@@ -40,36 +40,11 @@ export default function DashboardLayout() {
     })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
-        let modules = Array.isArray(data) ? data : data.modules || [];
-        const isHotelBiz = (
-          subStatus?.industry === 'hotel' || 
-          currentUser?.industry === 'hotel' || 
-          (currentUser?.business_name && currentUser.business_name.toLowerCase().includes('hotel')) ||
-          (subStatus?.name && subStatus.name.toLowerCase().includes('hotel'))
-        );
-        if (modules.length === 0 && isHotelBiz) {
-          modules = [{
-            id: 'module_hotels',
-            name: 'Hotels & Hospitality Intelligence',
-            ui_extensions: {
-              routes: [
-                { path: "/hotels/reservations", title: "Reservations Calendar", icon: "Calendar" },
-                { path: "/hotels/frontdesk", title: "Front Desk & Check-in", icon: "UserCheck" },
-                { path: "/hotels/rooms", title: "Rooms Directory", icon: "Key" },
-                { path: "/hotels/housekeeping", title: "Housekeeping Schedule", icon: "Briefcase" },
-                { path: "/hotels/maintenance", title: "Maintenance Tickets", icon: "Wrench" },
-                { path: "/hotels/restaurant", title: "Restaurant POS", icon: "Coffee" },
-                { path: "/hotels/inventory", title: "Inventory Control", icon: "Package" },
-                { path: "/hotels/finance", title: "Folio Finance & Invoices", icon: "Receipt" },
-                { path: "/hotels/analytics", title: "ADR / RevPAR Analytics", icon: "BarChart2" }
-              ]
-            }
-          }];
-        }
+        let modules = Array.isArray(data) ? data : (data.modules || []);
         setInstalledModules(modules);
       })
       .catch(err => console.error("Error fetching installed modules:", err));
-  }, [businessId, subStatus, currentUser]);
+  }, [businessId]);
 
   React.useEffect(() => {
     if (businessId) {
