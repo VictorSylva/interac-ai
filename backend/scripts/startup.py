@@ -55,7 +55,6 @@ async def init_db():
         except Exception as purge_err:
             print(f"Dummy data purge note: {purge_err}")
             
->>>>>>> staging
     # Check if alembic_version table exists
     async with engine.connect() as conn:
         def check_alembic_table(sync_conn):
@@ -88,8 +87,6 @@ def main():
             sys.exit(res.returncode)
         print("Migrations completed successfully.")
 
-<<<<<<< HEAD
-=======
     # 3. Ensure essential subscription plans (including custom_operating_system) exist
     try:
         from seed_plans import seed_plans
@@ -98,6 +95,5 @@ def main():
     except Exception as e:
         print(f"Warning: Failed to auto-seed subscription plans: {e}")
 
->>>>>>> staging
 if __name__ == "__main__":
     main()

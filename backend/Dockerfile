@@ -23,4 +23,4 @@ COPY backend/ .
 # Expose the API port
 EXPOSE 8000
 
-CMD ["sh", "-c", "python scripts/startup.py && uvicorn main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python scripts/startup.py && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
