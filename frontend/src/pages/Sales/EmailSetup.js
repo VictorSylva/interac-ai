@@ -4,19 +4,16 @@ import {
   Mail, 
   Settings, 
   Send, 
-  CheckCircle, 
-  XCircle, 
   Lock,
-  ChevronRight,
-  Server,
-  Zap,
   AlertTriangle,
   Activity,
-  ShieldCheck
+  ShieldCheck,
+  ChevronRight
 } from "lucide-react";
 import { API_BASE_URL } from "../../config";
 import { useAuth } from "../../contexts/AuthContext";
 import Loader from "../../components/Loader";
+
 
 export default function EmailSetup() {
   const { currentUser } = useAuth();
@@ -46,9 +43,8 @@ export default function EmailSetup() {
 
   const fetchConfig = async () => {
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
-      const res = await fetch(`${apiUrl}/api/email/config?business_id=${encodeURIComponent(businessId)}`);
+      const res = await fetch(`${API_BASE_URL}/api/email/config?business_id=${encodeURIComponent(businessId)}`);
       const data = await res.json();
       if (data.status === "success") {
         setForm(prev => ({ ...prev, ...data.config }));
@@ -67,9 +63,8 @@ export default function EmailSetup() {
   const handleSave = async (silent = false) => {
     setSaving(true);
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
-      const res = await fetch(`${apiUrl}/api/email/config`, {
+      const res = await fetch(`${API_BASE_URL}/api/email/config`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, business_id: businessId }),
@@ -97,9 +92,8 @@ export default function EmailSetup() {
       
       setSaving(true);
       const businessId = currentUser?.business_id || currentUser?.email || "default";
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
       try {
-        await fetch(`${apiUrl}/api/email/config`, {
+        await fetch(`${API_BASE_URL}/api/email/config`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...form, is_active: newState, business_id: businessId }),
@@ -117,9 +111,8 @@ export default function EmailSetup() {
     setTesting(true);
     setTestStatus(null);
     const businessId = currentUser?.business_id || currentUser?.email || "default";
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
     try {
-      const res = await fetch(`${apiUrl}/api/email/test-email?business_id=${encodeURIComponent(businessId)}&to=${encodeURIComponent(testEmail)}`, {
+      const res = await fetch(`${API_BASE_URL}/api/email/test-email?business_id=${encodeURIComponent(businessId)}&to=${encodeURIComponent(testEmail)}`, {
         method: "POST"
       });
       const data = await res.json();
@@ -138,7 +131,7 @@ export default function EmailSetup() {
 
   if (loading) return <Loader message="Loading Email Settings..." />;
 
-  const isConfigured = form.provider === 'resend' ? !!form.api_key : (!!form.smtp_host && !!form.smtp_user);
+  const isConfigured = !!form.api_key;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-20">
@@ -146,9 +139,9 @@ export default function EmailSetup() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-grey-light">
         <div>
           <h1 className="text-2xl font-bold text-navy flex items-center gap-3">
-             <Mail className="text-navy" /> Email Integration
+             <Mail className="text-navy" /> Email Integration (Resend API)
           </h1>
-          <p className="text-grey-500 text-sm mt-1">Manage transactional emails and automated order fulfillment</p>
+          <p className="text-grey-500 text-sm mt-1">High-deliverability cloud transactional emails over secure HTTPS</p>
         </div>
         
         <div className="flex items-center gap-4 w-full md:w-auto">
@@ -179,34 +172,22 @@ export default function EmailSetup() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Provider Selection */}
+        {/* Left Column: Provider Overview & Quick Test */}
         <div className="lg:col-span-1 space-y-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-grey-light">
                 <h3 className="font-bold text-navy mb-4 flex items-center gap-2 text-sm uppercase tracking-wider opacity-70">
-                    Step 1: Choose Provider
+                    Email Engine
                 </h3>
                 <div className="space-y-3">
-                    <button 
-                        onClick={() => setForm({...form, provider: 'resend'})}
-                        className={`w-full p-4 rounded-xl border-2 flex flex-col items-start transition-all ${form.provider === 'resend' ? 'border-navy bg-navy/5 shadow-inner' : 'border-grey-light hover:border-grey-medium'}`}
-                    >
+                    <div className="w-full p-4 rounded-xl border-2 border-navy bg-navy/5 flex flex-col items-start">
                         <div className="flex items-center justify-between w-full mb-1">
-                            <span className="font-bold text-sm">Resend API</span>
-                            {form.provider === 'resend' && <ShieldCheck size={16} className="text-navy" />}
+                            <span className="font-bold text-sm text-navy">Resend HTTP API</span>
+                            <ShieldCheck size={16} className="text-navy" />
                         </div>
-                        <span className="text-xs text-grey-500 text-left leading-relaxed">Modern, developer-friendly email infrastructure. Ideal for startups.</span>
-                    </button>
-                    
-                    <button 
-                        onClick={() => setForm({...form, provider: 'smtp'})}
-                        className={`w-full p-4 rounded-xl border-2 flex flex-col items-start transition-all ${form.provider === 'smtp' ? 'border-navy bg-navy/5 shadow-inner' : 'border-grey-light hover:border-grey-medium'}`}
-                    >
-                        <div className="flex items-center justify-between w-full mb-1">
-                            <span className="font-bold text-sm">Custom SMTP</span>
-                            {form.provider === 'smtp' && <ShieldCheck size={16} className="text-navy" />}
-                        </div>
-                        <span className="text-xs text-grey-500 text-left leading-relaxed">Use your existing business mail server (Google, Outlook, Private).</span>
-                    </button>
+                        <span className="text-xs text-grey-500 text-left leading-relaxed">
+                            Ultra-reliable HTTPS email infrastructure with 99.9% inbox placement. Cloud-native and immune to port blocking.
+                        </span>
+                    </div>
                 </div>
 
                 <div className="mt-8 bg-grey-50 p-4 rounded-lg border border-grey-light">
@@ -239,70 +220,26 @@ export default function EmailSetup() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-grey-light relative overflow-hidden">
                  <div className="flex items-center gap-3 text-navy pb-4 border-b border-grey-light mb-6">
                     <Settings size={20} className="text-navy/50" />
-                    <h2 className="text-lg font-bold">Step 2: {form.provider === 'resend' ? 'Resend' : 'SMTP'} Details</h2>
+                    <h2 className="text-lg font-bold">API Credentials</h2>
                 </div>
 
-                {form.provider === 'resend' ? (
-                    <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
-                        <InputField 
-                            label="Resend API Key" 
-                            name="api_key" 
-                            type="password"
-                            value={form.api_key} 
-                            onChange={handleChange} 
-                            placeholder="re_1234567890..."
-                            icon={Lock}
-                        />
-                        <div className="bg-navy/5 p-4 rounded-lg flex gap-3 items-start">
-                            <Activity size={18} className="text-navy shrink-0 mt-0.5" />
-                            <p className="text-xs text-navy/70 leading-relaxed">
-                                Get your API key from the <b>Resend Dashboard</b>. Ensure you have verified your domain in Resend to avoid spam filters.
-                            </p>
-                        </div>
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4">
+                    <InputField 
+                        label="Resend API Key" 
+                        name="api_key" 
+                        type="password"
+                        value={form.api_key} 
+                        onChange={handleChange} 
+                        placeholder="re_1234567890..."
+                        icon={Lock}
+                    />
+                    <div className="bg-navy/5 p-4 rounded-lg flex gap-3 items-start">
+                        <Activity size={18} className="text-navy shrink-0 mt-0.5" />
+                        <p className="text-xs text-navy/70 leading-relaxed">
+                            Obtain your free or production API key from the <b>Resend Dashboard (resend.com)</b>. Ensure you add your sending domain (e.g. <code>interacai.com</code>) to Resend's DNS settings for optimal deliverability.
+                        </p>
                     </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-in fade-in slide-in-from-right-4">
-                        <div className="md:col-span-2">
-                            <InputField 
-                                label="SMTP Host" 
-                                name="smtp_host" 
-                                value={form.smtp_host} 
-                                onChange={handleChange} 
-                                placeholder="e.g. smtp.gmail.com"
-                                icon={Server}
-                            />
-                        </div>
-                        <InputField 
-                            label="SMTP Port" 
-                            name="smtp_port" 
-                            type="number"
-                            value={form.smtp_port} 
-                            onChange={handleChange} 
-                            placeholder="587"
-                        />
-                        <InputField 
-                            label="SMTP User / Username" 
-                            name="smtp_user" 
-                            value={form.smtp_user} 
-                            onChange={handleChange} 
-                            placeholder="user@example.com"
-                        />
-                        <div className="md:col-span-2">
-                             <InputField 
-                                label="SMTP Password / App Password" 
-                                name="smtp_password" 
-                                type="password"
-                                value={form.smtp_password} 
-                                onChange={handleChange} 
-                                placeholder="••••••••"
-                                icon={Lock}
-                            />
-                            <p className="text-[10px] text-grey-500 mt-2">
-                                <b>Note:</b> For Gmail, you must use an <b>App Password</b>, not your main account password.
-                            </p>
-                        </div>
-                    </div>
-                )}
+                </div>
 
                 <div className="mt-10 pt-8 border-t border-grey-light">
                     <h4 className="text-xs font-bold text-navy uppercase tracking-widest mb-6 opacity-60">Sender Branding</h4>

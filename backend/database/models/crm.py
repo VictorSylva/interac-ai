@@ -17,6 +17,7 @@ class Lead(Base):
     # Unified Identity arrays
     emails = Column(JSON, default=list)
     phones = Column(JSON, default=list)
+    external_identities = Column(JSON, default=dict) # {"whatsapp": [...], "messenger": [...], "instagram": [...]}
     
     source = Column(String)
     notes = Column(Text)

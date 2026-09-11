@@ -25,7 +25,6 @@ python-docx
 passlib[bcrypt]
 httpx
 cryptography
-aiosmtplib
 pywebpush
 pyjwt
 

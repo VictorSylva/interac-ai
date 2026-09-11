@@ -4,7 +4,7 @@ from sqlalchemy import select, update, delete, desc, or_, func
 from sqlalchemy.orm import selectinload
 from database.session import AsyncSessionLocal
 from database.models.chat import Conversation, Message
-from database.models.general import BusinessSettings, KnowledgeDoc, User, Business, BusinessWhatsAppConfig, BusinessEmailConfig
+from database.models.general import BusinessSettings, KnowledgeDoc, User, Business, BusinessWhatsAppConfig, BusinessEmailConfig, BusinessMetaConfig
 from database.models.crm import Lead, LeadActivity, Ticket # Assuming Ticket exists or we map to it
 from database.models.workflow import Workflow
 from backend.utils.encryption import encrypt_token, decrypt_token
@@ -140,7 +140,23 @@ async def get_all_possible_business_ids(business_id: str) -> list:
 
 # --- Chat & Analytics ---
 
-async def store_message(business_id: str, user_id: str, text: str, sender: str, platform: str = "web", intent: str = None, sentiment: str = None):
+async def store_message(
+    business_id: str, 
+    user_id: str, 
+    text: str, 
+    sender: str, 
+    platform: str = "web", 
+    intent: str = None, 
+    sentiment: str = None,
+    external_account_id: str = None,
+    external_user_id: str = None,
+    external_message_id: str = None,
+    message_type: str = "text",
+    source_post_id: str = None,
+    source_comment_id: str = None,
+    raw_metadata: dict = None,
+    customer_name: str = None
+):
     business_id = await resolve_business_id(business_id)
     async with AsyncSessionLocal() as session:
         try:
@@ -157,9 +173,26 @@ async def store_message(business_id: str, user_id: str, text: str, sender: str, 
                     id=convo_id,
                     business_id=business_id,
                     platform=platform,
-                    customer_name=user_id # Default
+                    channel=platform,
+                    customer_name=customer_name or user_id,
+                    external_account_id=external_account_id,
+                    external_user_id=external_user_id or user_id,
+                    channel_metadata=raw_metadata or {}
                 )
                 session.add(conversation)
+            else:
+                if external_account_id and not conversation.external_account_id:
+                    conversation.external_account_id = external_account_id
+                if external_user_id and not conversation.external_user_id:
+                    conversation.external_user_id = external_user_id
+                if not conversation.channel:
+                    conversation.channel = platform
+                if customer_name and (conversation.customer_name == user_id or not conversation.customer_name):
+                    conversation.customer_name = customer_name
+                if raw_metadata:
+                    curr_meta = dict(conversation.channel_metadata or {})
+                    curr_meta.update(raw_metadata)
+                    conversation.channel_metadata = curr_meta
             
             # 2. Add Message
             new_msg = Message(
@@ -168,9 +201,15 @@ async def store_message(business_id: str, user_id: str, text: str, sender: str, 
                 text=text,
                 sender=sender, # customer, agent, bot
                 platform=platform,
+                channel=platform,
                 intent=intent,
                 sentiment=str(sentiment).capitalize() if sentiment else None,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
+                external_message_id=external_message_id,
+                message_type=message_type,
+                source_post_id=source_post_id,
+                source_comment_id=source_comment_id,
+                raw_metadata=raw_metadata or {}
             )
             session.add(new_msg)
             
@@ -178,6 +217,7 @@ async def store_message(business_id: str, user_id: str, text: str, sender: str, 
             conversation.last_message = text
             conversation.last_timestamp = datetime.utcnow()
             conversation.platform = platform
+            conversation.channel = platform
             
             # Ensure unread_count is not None
             if conversation.unread_count is None:
@@ -240,6 +280,23 @@ async def store_message(business_id: str, user_id: str, text: str, sender: str, 
                 "status": conversation.status,
                 "department": conversation.department
             })
+
+            # If customer message arrives in human mode or waiting status, notify agent & owner
+            if sender in ["customer", "user"] and (conversation.mode == "human" or conversation.status == "waiting"):
+                try:
+                    from services.notification_service import notification_service
+                    cust_name = user_id if not user_id.startswith("web_user_") else f"Web User ({user_id[9:17]})"
+                    await notification_service.notify_agent_and_owner(
+                        business_id=business_id,
+                        title="New Customer Message in Active Chat",
+                        message=text[:250],
+                        customer_identifier=cust_name,
+                        department=conversation.department or "general",
+                        conversation_id=convo_id,
+                        url="/conversations"
+                    )
+                except Exception as notif_err:
+                    logger.warning(f"Error triggering agent/owner notification in store_message: {notif_err}")
         except Exception as e:
             logger.error(f"Error storing message: {e}")
             await session.rollback()
@@ -442,6 +499,9 @@ async def get_recent_conversations(business_id: str, limit: int = 20):
                 "unread": c.unread_count,
                 "customerName": c.customer_name,
                 "platform": c.platform,
+                "channel": c.channel or c.platform,
+                "externalAccountId": c.external_account_id,
+                "externalUserId": c.external_user_id,
                 "lastIntent": c.last_intent,
                 "mode": c.mode or "ai",
                 "status": c.status or "active",
@@ -762,6 +822,8 @@ async def save_lead(business_id: str, lead_data: dict):
             convo_id = lead_data.get("conversation_id")
             email = lead_data.get("email")
             phone = lead_data.get("phone")
+            external_identities = lead_data.get("external_identities") or {}
+            external_user_id = lead_data.get("external_user_id") or lead_data.get("contact")
             
             potential_matches = set()
             
@@ -782,6 +844,16 @@ async def save_lead(business_id: str, lead_data: dict):
                     or_(Lead.phone == phone, cast(Lead.phones, String).ilike(f'%"{phone}"%'))
                 ))
                 for rid in res.scalars(): potential_matches.add(rid)
+
+            if external_user_id:
+                res = await session.execute(select(Lead.id).where(
+                    Lead.business_id == business_id,
+                    or_(
+                        cast(Lead.external_identities, String).ilike(f'%"{external_user_id}"%'),
+                        Lead.contact == external_user_id
+                    )
+                ))
+                for rid in res.scalars(): potential_matches.add(rid)
             
             lead_list = list(potential_matches)
             
@@ -799,6 +871,10 @@ async def save_lead(business_id: str, lead_data: dict):
                 # Update target with new data
                 t_emails = list(target_lead.emails or [])
                 t_phones = list(target_lead.phones or [])
+                t_ext_identities = dict(target_lead.external_identities or {})
+                if external_identities:
+                    t_ext_identities.update(external_identities)
+                target_lead.external_identities = t_ext_identities
                 
                 for key, value in lead_data.items():
                     if value is not None:
@@ -819,6 +895,8 @@ async def save_lead(business_id: str, lead_data: dict):
                 
                 lead_data["emails"] = emails
                 lead_data["phones"] = phones
+                if "external_identities" not in lead_data:
+                    lead_data["external_identities"] = external_identities
                 
                 lead = Lead(business_id=business_id, **lead_data)
                 session.add(lead)
@@ -861,8 +939,8 @@ async def get_lead_by_conversation(business_id: str, conversation_id: str):
             logger.error(f"Error finding lead by conversation: {e}")
             return None
 
-async def get_lead_by_contact(business_id: str, email: str = None, phone: str = None):
-    if not email and not phone:
+async def get_lead_by_contact(business_id: str, email: str = None, phone: str = None, external_user_id: str = None):
+    if not email and not phone and not external_user_id:
         return None
     business_id = await resolve_business_id(business_id)
     async with AsyncSessionLocal() as session:
@@ -880,6 +958,19 @@ async def get_lead_by_contact(business_id: str, email: str = None, phone: str = 
                 stmt = select(Lead.id).where(
                     Lead.business_id == business_id, 
                     or_(Lead.phone == phone, cast(Lead.phones, String).ilike(f'%"{phone}"%'))
+                ).order_by(desc(Lead.created_at))
+                res = await session.execute(stmt)
+                lid = res.scalars().first()
+                if lid: return lid
+            if external_user_id:
+                stmt = select(Lead.id).where(
+                    Lead.business_id == business_id,
+                    or_(
+                        cast(Lead.external_identities, String).ilike(f'%"{external_user_id}"%'),
+                        Lead.contact == external_user_id,
+                        Lead.phone == external_user_id,
+                        cast(Lead.phones, String).ilike(f'%"{external_user_id}"%')
+                    )
                 ).order_by(desc(Lead.created_at))
                 res = await session.execute(stmt)
                 lid = res.scalars().first()
@@ -1266,6 +1357,115 @@ async def get_business_id_by_phone_id(phone_number_id: str) -> str:
             logger.error(f"Error finding business by phone_id: {e}")
             return None
 
+async def get_meta_config(business_id: str):
+    real_business_id = await resolve_business_id(business_id)
+    async with AsyncSessionLocal() as session:
+        try:
+            stmt = select(BusinessMetaConfig).where(BusinessMetaConfig.business_id == real_business_id)
+            result = await session.execute(stmt)
+            config = result.scalar_one_or_none()
+            if not config: return None
+            return {
+                "facebook_page_id": config.facebook_page_id,
+                "facebook_page_name": config.facebook_page_name,
+                "facebook_page_access_token": decrypt_token(config.facebook_page_access_token) if config.facebook_page_access_token else None,
+                "instagram_account_id": config.instagram_account_id,
+                "instagram_username": config.instagram_username,
+                "app_id": config.app_id,
+                "app_secret": decrypt_token(config.app_secret) if config.app_secret else None,
+                "verify_token": config.verify_token,
+                "messenger_active": config.messenger_active,
+                "instagram_dm_active": config.instagram_dm_active,
+                "facebook_comments_active": config.facebook_comments_active,
+                "instagram_comments_active": config.instagram_comments_active,
+                "webhook_verified": config.webhook_verified,
+                "last_webhook_received_at": config.last_webhook_received_at.isoformat() if config.last_webhook_received_at else None,
+                "last_message_sent_at": config.last_message_sent_at.isoformat() if config.last_message_sent_at else None,
+                "connection_error": config.connection_error
+            }
+        except Exception as e:
+            logger.error(f"Error getting meta config: {e}")
+            return None
+
+async def update_meta_config(business_id: str, data: dict = None, **kwargs):
+    real_business_id = await resolve_business_id(business_id)
+    async with AsyncSessionLocal() as session:
+        try:
+            stmt = select(BusinessMetaConfig).where(BusinessMetaConfig.business_id == real_business_id)
+            result = await session.execute(stmt)
+            config = result.scalar_one_or_none()
+            
+            # Combine dict and kwargs
+            merged = {}
+            if data and isinstance(data, dict):
+                merged.update(data)
+            merged.update(kwargs)
+            
+            # Map friendly aliases to model columns
+            alias_map = {
+                "page_id": "facebook_page_id",
+                "page_name": "facebook_page_name",
+                "page_access_token": "facebook_page_access_token",
+                "instagram_business_id": "instagram_account_id",
+                "instagram_id": "instagram_account_id",
+                "messenger_enabled": "messenger_active",
+                "instagram_enabled": "instagram_dm_active",
+                "facebook_comments_enabled": "facebook_comments_active",
+                "instagram_comments_enabled": "instagram_comments_active"
+            }
+            
+            data_to_save = {}
+            for k, v in merged.items():
+                mapped_k = alias_map.get(k, k)
+                data_to_save[mapped_k] = v
+
+            # Encrypt sensitive fields
+            if "app_secret" in data_to_save and data_to_save["app_secret"]:
+                data_to_save["app_secret"] = encrypt_token(data_to_save["app_secret"])
+            if "facebook_page_access_token" in data_to_save and data_to_save["facebook_page_access_token"]:
+                data_to_save["facebook_page_access_token"] = encrypt_token(data_to_save["facebook_page_access_token"])
+                
+            valid_cols = {c.name for c in BusinessMetaConfig.__table__.columns}
+            filtered_data = {k: v for k, v in data_to_save.items() if k in valid_cols}
+
+            if config:
+                for k, v in filtered_data.items():
+                    setattr(config, k, v)
+                config.updated_at = datetime.utcnow()
+            else:
+                config = BusinessMetaConfig(business_id=real_business_id, **filtered_data)
+                session.add(config)
+            
+            await session.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating Meta config: {e}")
+            return False
+
+async def get_business_id_by_meta_page_id(page_id: str) -> str:
+    """Finds a business_id by its Facebook Page ID."""
+    if not page_id: return None
+    async with AsyncSessionLocal() as session:
+        try:
+            stmt = select(BusinessMetaConfig.business_id).where(BusinessMetaConfig.facebook_page_id == str(page_id))
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Error finding business by page_id: {e}")
+            return None
+
+async def get_business_id_by_instagram_id(ig_id: str) -> str:
+    """Finds a business_id by its Instagram Business Account ID."""
+    if not ig_id: return None
+    async with AsyncSessionLocal() as session:
+        try:
+            stmt = select(BusinessMetaConfig.business_id).where(BusinessMetaConfig.instagram_account_id == str(ig_id))
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            logger.error(f"Error finding business by ig_id: {e}")
+            return None
+
 async def log_prompt_execution(business_id: str, user_id: str, prompt, response, meta):
     # Fire and forget logging (could be Redis or simple print for MVP refactor)
     # We won't block generic logging for this task
@@ -1320,16 +1520,19 @@ async def set_conversation_mode(business_id: str, user_id: str, mode: str, agent
                     "assigned_agent_id": agent_id or convo.assigned_agent_id
                 })
                 
-                # Push Notification for Escalation
+                # Comprehensive Notification (WhatsApp + Email + Push) for Escalation
                 if (status == "waiting" or convo.status == "waiting") and mode == "human":
                     from services.notification_service import notification_service
                     dept = department or convo.department or "general"
-                    await notification_service.notify_department(
-                        business_id, 
-                        dept,
-                        title="New Customer Waiting",
-                        body=f"A customer is waiting for {dept} assistance.",
-                        url=f"/conversations"
+                    cust_name = user_id if not user_id.startswith("web_user_") else f"Web User ({user_id[9:17]})"
+                    await notification_service.notify_agent_and_owner(
+                        business_id=business_id,
+                        title=f"Customer Waiting for {dept.capitalize()} Assistance",
+                        message=f"A customer ({cust_name}) is waiting for human assistance in the {dept.capitalize()} department.",
+                        customer_identifier=cust_name,
+                        department=dept,
+                        conversation_id=convo.id,
+                        url="/conversations"
                     )
                 
                 # If we just escalated to human and no agent assigned, try auto-assigning

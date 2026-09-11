@@ -36,7 +36,7 @@ class WorkflowEngine:
             return []
         
         # 0.2 Track Conversation (unique user within 24h)
-        user_id = trigger_data.get("from_number") or trigger_data.get("user_id")
+        user_id = trigger_data.get("from_number") or trigger_data.get("user_id") or trigger_data.get("sender_id")
         if user_id and user_id != "unknown":
             await track_conversation(business_id, user_id)
 
@@ -51,6 +51,10 @@ class WorkflowEngine:
             target_types = {trigger_type}
             if trigger_type == "message_created":
                 target_types.update(["keyword", "intent", "keyword_detected", "intent_detected", "ai_sentiment"])
+            elif trigger_type in ["messenger_message", "instagram_message", "whatsapp_message"]:
+                target_types.update(["message_created", "keyword", "intent", "keyword_detected", "intent_detected", "ai_sentiment", trigger_type])
+            elif trigger_type in ["facebook_comment", "instagram_comment", "social_comment"]:
+                target_types.update(["social_comment", "comment_created", "social_signal", "facebook_comment", "instagram_comment", "social_media_event"])
             elif trigger_type == "appointment_booked":
                 target_types.add("scheduling_event")
             elif trigger_type == "scheduling_event":
@@ -171,23 +175,15 @@ class WorkflowEngine:
         Orchestration: Checks if this user has a suspended workflow and resumes it.
         Returns Execution ID if resumed, None otherwise.
         """
-        # Support both WhatsApp (from_number) and Web (user_id)
-        user_identifier = trigger_data.get("from_number") or trigger_data.get("user_id")
+        # Support WhatsApp (from_number), Web (user_id), and Social (sender_id / psid / igsid)
+        user_identifier = trigger_data.get("from_number") or trigger_data.get("user_id") or trigger_data.get("sender_id")
         
         if not user_identifier:
             logger.warning("[WorkflowEngine] Cannot check resume: No user_identifier in trigger data.")
             return None
 
         async with AsyncSessionLocal() as session:
-            # Find suspended execution for this user (simple heuristic: look for from_number in trigger)
-            # This relies on JSON containment or extracting the user ID. 
-            # For now, let's assume we search where context_data->trigger->from_number matches.
-            # This is slow without an index, but acceptable for MVP.
-            
-            # Using Python-side filtering for JSON safety across DBs,
-            # but ideally we use JSON path query: execution.context_data['trigger']['from_number']
-            
-            # 1. Get all suspended executions for this business
+            # Find suspended execution for this user
             stmt = select(WorkflowExecution).where(
                 WorkflowExecution.business_id == business_id,
                 WorkflowExecution.status == 'suspended'
@@ -197,10 +193,8 @@ class WorkflowEngine:
             
             target_execution = None
             for exc in executions:
-                # Check if this execution belongs to this user
-                # We assume context_data has "trigger"
                 ex_trigger = exc.context_data.get("trigger", {})
-                ex_user = ex_trigger.get("from_number") or ex_trigger.get("user_id")
+                ex_user = ex_trigger.get("from_number") or ex_trigger.get("user_id") or ex_trigger.get("sender_id")
                 
                 if ex_user == user_identifier:
                     target_execution = exc
@@ -463,6 +457,20 @@ class WorkflowEngine:
             if target_event and target_event != actual_event:
                 return False
                 
+        # 6. Channel Match (e.g. 'whatsapp', 'messenger', 'instagram', 'facebook_comment', 'instagram_comment')
+        if "channel" in config and config["channel"]:
+            target_chan = str(config["channel"]).lower().strip()
+            actual_chan = str(data.get("channel") or "").lower().strip()
+            if target_chan and target_chan not in ["all", "any"] and target_chan != actual_chan:
+                return False
+
+        # 7. Risk Level Match (e.g. 'low', 'medium', 'high', 'critical')
+        if "risk_level" in config and config["risk_level"]:
+            target_risk = str(config["risk_level"]).lower().strip()
+            actual_risk = str(data.get("risk_level") or "").lower().strip()
+            if target_risk and target_risk != actual_risk:
+                return False
+
         return True
 
     def dispatch_node_processing(self, execution_id: str, node_id: str, delay: int = 0):
@@ -886,7 +894,7 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
                 return {"action_result": "skipped", "reason": "missing_id"}
 
         elif action_type == "send_email":
-            # Action: Send Email via SMTP
+            # Action: Send Email via Resend HTTP API
             from services.email_service import email_service
             
             # 1. Resolve Recipient
@@ -979,7 +987,7 @@ async def execute_node_logic(node: WorkflowNode, context: dict):
 
                 return {"action_result": "email_sent", "to": to_email}
             else:
-                error_msg = result[1] if isinstance(result, tuple) else "SMTP delivery failed"
+                error_msg = result[1] if isinstance(result, tuple) else "Email delivery failed"
                 return {"action_result": "failed", "error": error_msg}
 
         elif action_type == "notify_agent_whatsapp":

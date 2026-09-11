@@ -20,6 +20,7 @@ class Business(Base):
     workflows = relationship("Workflow", back_populates="business")
     leads = relationship("Lead", back_populates="business")
     whatsapp_config = relationship("BusinessWhatsAppConfig", back_populates="business", uselist=False)
+    meta_config = relationship("BusinessMetaConfig", back_populates="business", uselist=False)
     email_config = relationship("BusinessEmailConfig", back_populates="business", uselist=False)
     activities = relationship("LeadActivity", back_populates="business")
     properties = relationship("Property", back_populates="business")
@@ -165,6 +166,39 @@ class BusinessEmailConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     business = relationship("Business", back_populates="email_config")
+
+class BusinessMetaConfig(Base):
+    """Stores business-specific Meta API credentials (Facebook Page, Messenger, Instagram)."""
+    __tablename__ = "business_meta_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    business_id = Column(String, ForeignKey("businesses.id"), unique=True)
+    
+    facebook_page_id = Column(String, index=True, nullable=True)
+    facebook_page_name = Column(String, nullable=True)
+    facebook_page_access_token = Column(Text, nullable=True) # Encrypted
+    
+    instagram_account_id = Column(String, index=True, nullable=True)
+    instagram_username = Column(String, nullable=True)
+    
+    app_id = Column(String, nullable=True)
+    app_secret = Column(Text, nullable=True) # Encrypted
+    verify_token = Column(String, nullable=True)
+    
+    messenger_active = Column(Boolean, default=False)
+    instagram_dm_active = Column(Boolean, default=False)
+    facebook_comments_active = Column(Boolean, default=False)
+    instagram_comments_active = Column(Boolean, default=False)
+    
+    webhook_verified = Column(Boolean, default=False)
+    last_webhook_received_at = Column(DateTime, nullable=True)
+    last_message_sent_at = Column(DateTime, nullable=True)
+    connection_error = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business", back_populates="meta_config")
 
 class Property(Base):
     __tablename__ = "properties"

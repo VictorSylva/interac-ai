@@ -13,9 +13,30 @@ export default function Conversations() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [filterDepartment, setFilterDepartment] = useState('all');
+  const [filterChannel, setFilterChannel] = useState('all');
   const [availableDepartments, setAvailableDepartments] = useState(['sales', 'support', 'billing', 'general']);
   
   const businessId = currentUser?.business_id || currentUser?.email || "default";
+
+  const renderChannelBadge = (ch) => {
+    const channel = (ch || 'web').toLowerCase();
+    if (channel.includes('whatsapp')) {
+      return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">WhatsApp</span>;
+    }
+    if (channel.includes('messenger')) {
+      return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">Messenger</span>;
+    }
+    if (channel === 'instagram' || channel === 'instagram_message' || channel === 'instagram_direct') {
+      return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-pink-100 text-pink-800 border border-pink-200">Instagram DM</span>;
+    }
+    if (channel.includes('facebook_comment')) {
+      return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200">FB Comment</span>;
+    }
+    if (channel.includes('instagram_comment')) {
+      return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800 border border-purple-200">IG Comment</span>;
+    }
+    return <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">{channel}</span>;
+  };
 
   const onMessage = useCallback((event) => {
     // Normalize IDs: the server often sends full "bid:user_id", dashboard uses "user_id"
@@ -273,9 +294,25 @@ export default function Conversations() {
   };
 
   const filteredConversations = conversations.filter(c => {
-    if (filterDepartment === 'all') return true;
-    const dept = (c.department || 'general').toLowerCase();
-    return dept === filterDepartment.toLowerCase();
+    if (filterDepartment !== 'all') {
+      const dept = (c.department || 'general').toLowerCase();
+      if (dept !== filterDepartment.toLowerCase()) return false;
+    }
+    if (filterChannel !== 'all') {
+      const ch = (c.channel || c.platform || 'web').toLowerCase();
+      if (filterChannel === 'comments') {
+        if (!ch.includes('comment')) return false;
+      } else if (filterChannel === 'whatsapp') {
+        if (!ch.includes('whatsapp')) return false;
+      } else if (filterChannel === 'messenger') {
+        if (!ch.includes('messenger')) return false;
+      } else if (filterChannel === 'instagram') {
+        if (!ch.includes('instagram') || ch.includes('comment')) return false;
+      } else if (filterChannel === 'web') {
+        if (ch !== 'web' && ch !== 'web_chat') return false;
+      }
+    }
+    return true;
   });
 
   if (loading) {
@@ -290,7 +327,7 @@ export default function Conversations() {
         w-full md:w-1/3 
         ${selectedChat ? 'hidden md:flex' : 'flex'}
       `}>
-        <div className="p-4 border-b border-grey-medium flex flex-col gap-3">
+        <div className="p-4 border-b border-grey-medium flex flex-col gap-2.5">
           <div className="relative">
             <Search className="absolute left-3 top-3 text-grey-400 w-5 h-5" />
             <input 
@@ -299,20 +336,43 @@ export default function Conversations() {
               className="w-full pl-10 pr-4 py-2 border border-grey-medium rounded-lg focus:outline-none focus:border-navy"
             />
           </div>
+
+          {/* Channel Filters */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide text-xs">
+             <span className="text-[10px] font-bold text-grey-400 uppercase tracking-wider shrink-0 mr-1">Channel:</span>
+             {[
+               { id: 'all', label: 'All' },
+               { id: 'whatsapp', label: 'WhatsApp' },
+               { id: 'messenger', label: 'Messenger' },
+               { id: 'instagram', label: 'Instagram' },
+               { id: 'comments', label: 'Comments' }
+             ].map(ch => (
+               <button
+                 key={ch.id}
+                 onClick={() => setFilterChannel(ch.id)}
+                 className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${
+                   filterChannel === ch.id ? 'bg-navy text-white shadow-sm' : 'bg-grey-100 text-grey-600 hover:bg-grey-200'
+                 }`}
+               >
+                 {ch.label}
+               </button>
+             ))}
+          </div>
           
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-             <Filter size={14} className="text-grey-400 shrink-0" />
+          {/* Department Filters */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+             <Filter size={12} className="text-grey-400 shrink-0 mr-1" />
              <button 
                 onClick={() => setFilterDepartment('all')}
-                className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${filterDepartment === 'all' ? 'bg-navy text-white' : 'bg-grey-100 text-grey-600'}`}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${filterDepartment === 'all' ? 'bg-blue-600 text-white' : 'bg-grey-100 text-grey-600 hover:bg-grey-200'}`}
              >
-                All
+                All Depts
              </button>
              {availableDepartments.map(dept => (
                 <button 
                     key={dept}
                     onClick={() => setFilterDepartment(dept)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold uppercase whitespace-nowrap ${filterDepartment === dept ? 'bg-navy text-white' : 'bg-grey-100 text-grey-600'}`}
+                    className={`px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase whitespace-nowrap ${filterDepartment === dept ? 'bg-blue-600 text-white' : 'bg-grey-100 text-grey-600 hover:bg-grey-200'}`}
                 >
                     {dept}
                 </button>
@@ -343,12 +403,10 @@ export default function Conversations() {
                   </span>
                 )}
               </div>
-              <div className="mt-2 flex gap-2">
-                 <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${chat.platform === 'whatsapp' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>
-                    {chat.platform || 'unknown'}
-                 </span>
+              <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+                 {renderChannelBadge(chat.channel || chat.platform)}
                   {chat.mode === 'human' && (
-                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
                        Human Mode
                     </span>
                   )}
@@ -396,14 +454,22 @@ export default function Conversations() {
                         <User size={20} />
                     </div>
                     <div className="overflow-hidden">
-                        <h2 className="font-bold text-navy truncate">{selectedChat.customerName || selectedChat.id}</h2>
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-green-600 flex items-center gap-1">
+                          <h2 className="font-bold text-navy truncate">{selectedChat.customerName || selectedChat.id}</h2>
+                          {renderChannelBadge(selectedChat.channel || selectedChat.platform)}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-green-600 flex items-center gap-1 font-medium">
                               ● Active
                           </span>
                           {selectedChat.mode === 'human' && (
-                            <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold uppercase">
-                              AI Paused
+                            <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold uppercase border border-amber-200">
+                              AI Paused (Human)
+                            </span>
+                          )}
+                          {(selectedChat.channel?.includes('comment') || selectedChat.platform?.includes('comment')) && (
+                            <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-bold uppercase border border-indigo-200">
+                              Public Post Comment Thread
                             </span>
                           )}
                         </div>

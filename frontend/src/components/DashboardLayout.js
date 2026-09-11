@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, MessageSquare, Settings, LogOut, BarChart2, Menu, X, Zap, Users, 
   Calendar, Phone, Activity, Shield, Check, ShoppingCart, Layers, Heart, Landmark,
-  UserCheck, Key, Briefcase, Wrench, Coffee, Package, Receipt
+  UserCheck, Key, Briefcase, Wrench, Coffee, Package, Receipt, Globe
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../config';
@@ -123,6 +123,7 @@ export default function DashboardLayout() {
     { icon: ShoppingCart, label: 'Commerce & Sales', path: '/dashboard/sales', roles: ['owner', 'admin'] },
     { icon: Calendar, label: 'Scheduling', path: '/dashboard/scheduling', roles: ['owner', 'admin'] },
     { icon: Phone, label: 'WhatsApp Integration', path: '/dashboard/whatsapp-setup', roles: ['owner', 'admin'] },
+    { icon: Globe, label: 'Meta & Social Channels', path: '/dashboard/meta-setup', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Security & Surveillance', path: '/dashboard/intelligence', roles: ['owner', 'admin'] },
     { icon: Layers, label: 'Industry Modules', path: '/dashboard/modules', roles: ['owner', 'admin'] },
     { icon: Settings, label: 'Settings & Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
@@ -210,6 +211,7 @@ export default function DashboardLayout() {
               'Commerce & Sales': 'hotel.finance.read',
               'Scheduling': 'hotel.reservations.read',
               'WhatsApp Integration': 'workflow.manage',
+              'Meta & Social Channels': 'workflow.manage',
               'Security & Surveillance': 'security.cameras.view',
               'Industry Modules': 'module.install',
               'Billing & Subscription': 'billing.manage'

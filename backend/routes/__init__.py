@@ -15,5 +15,6 @@ from . import hotel_routes
 from . import hospital_routes
 from . import retail_routes
 from . import education_routes
+from . import meta_routes
 
 

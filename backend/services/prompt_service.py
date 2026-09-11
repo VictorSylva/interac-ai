@@ -80,6 +80,156 @@ class PromptService:
             
         return {"sentiment": sentiment, "score": score}
 
+    async def classify_social_comment(self, comment_text: str) -> dict:
+        """
+        Classifies social comments across Meta channels into structured business signals,
+        intent taxonomy, sentiment, and risk levels.
+        """
+        text_lower = (comment_text or "").lower().strip()
+        sentiment_res = await self.analyze_sentiment(text_lower)
+        sentiment = sentiment_res.get("sentiment", "neutral")
+        sentiment_score = sentiment_res.get("score", 0.5)
+
+        # 1. Spam Check
+        spam_indicators = ["t.me/", "whatsapp +", "earn money", "forex", "crypto investment", "dm @", "whatsapp me"]
+        if any(w in text_lower for w in spam_indicators):
+            return {
+                "intent": "SPAM",
+                "risk_level": "LOW",
+                "sentiment": sentiment,
+                "confidence": 0.95,
+                "department": "security",
+                "recommended_action": "BLOCK_OR_HIDE",
+                "is_private_reply_eligible": False
+            }
+
+        # 2. Critical Complaint Check
+        complaint_indicators = ["scam", "haven't received", "havent received", "refund", "terrible", "worst", "fraud", "unacceptable", "thief", "thieves", "police"]
+        if any(w in text_lower for w in complaint_indicators):
+            return {
+                "intent": "CUSTOMER_COMPLAINT",
+                "risk_level": "CRITICAL",
+                "sentiment": "negative",
+                "confidence": 0.98,
+                "department": "support",
+                "recommended_action": "ESCALATE_TO_STAFF",
+                "is_private_reply_eligible": True
+            }
+
+        # 3. Purchase Intent
+        purchase_indicators = ["i want to buy", "want to order", "order now", "send account", "how to pay", "can i pay", "i need this", "want this"]
+        if any(w in text_lower for w in purchase_indicators):
+            return {
+                "intent": "PURCHASE_INTENT",
+                "risk_level": "HIGH",
+                "sentiment": "positive",
+                "confidence": 0.92,
+                "department": "sales",
+                "recommended_action": "PRIVATE_REPLY",
+                "is_private_reply_eligible": True
+            }
+
+        # 4. Price Enquiry
+        price_indicators = ["how much", "cost", "price", "rate", "quote", "how much is", "hm is", "pricing", "fee"]
+        if any(w in text_lower for w in price_indicators):
+            return {
+                "intent": "PRICE_ENQUIRY",
+                "risk_level": "MEDIUM",
+                "sentiment": sentiment,
+                "confidence": 0.94,
+                "department": "sales",
+                "recommended_action": "PRIVATE_REPLY",
+                "is_private_reply_eligible": True
+            }
+
+        # 5. Availability Enquiry
+        availability_indicators = ["available", "in stock", "have size", "size ", "colour", "color", "restock", "do you have"]
+        if any(w in text_lower for w in availability_indicators):
+            return {
+                "intent": "AVAILABILITY_ENQUIRY",
+                "risk_level": "MEDIUM",
+                "sentiment": sentiment,
+                "confidence": 0.90,
+                "department": "sales",
+                "recommended_action": "PRIVATE_REPLY",
+                "is_private_reply_eligible": True
+            }
+
+        # 6. Delivery Enquiry
+        delivery_indicators = ["deliver", "delivery", "shipping", "ship to", "waybill", "dispatch", "abuja", "lagos", "port harcourt"]
+        if any(w in text_lower for w in delivery_indicators) and ("deliver" in text_lower or "ship" in text_lower or "waybill" in text_lower):
+            return {
+                "intent": "DELIVERY_ENQUIRY",
+                "risk_level": "MEDIUM",
+                "sentiment": sentiment,
+                "confidence": 0.88,
+                "department": "operations",
+                "recommended_action": "PRIVATE_REPLY",
+                "is_private_reply_eligible": True
+            }
+
+        # 7. Location Enquiry
+        location_indicators = ["where are you", "location", "address", "shop address", "store address", "where is your shop", "where is your office"]
+        if any(w in text_lower for w in location_indicators):
+            return {
+                "intent": "LOCATION_ENQUIRY",
+                "risk_level": "LOW",
+                "sentiment": sentiment,
+                "confidence": 0.90,
+                "department": "support",
+                "recommended_action": "PUBLIC_REPLY",
+                "is_private_reply_eligible": False
+            }
+
+        # 8. Partnership / Collaboration
+        partnership_indicators = ["collab", "collaboration", "partnership", "wholesale", "influencer", "bulk purchase", "distributor"]
+        if any(w in text_lower for w in partnership_indicators):
+            return {
+                "intent": "PARTNERSHIP_ENQUIRY",
+                "risk_level": "HIGH",
+                "sentiment": sentiment,
+                "confidence": 0.90,
+                "department": "management",
+                "recommended_action": "ESCALATE_TO_STAFF",
+                "is_private_reply_eligible": True
+            }
+
+        # 9. Positive Feedback
+        positive_indicators = ["love this", "beautiful", "gorgeous", "fire", "nice", "clean", "top notch", "amazing", "great", "awesome", "well done", "congrats"]
+        if any(w in text_lower for w in positive_indicators) or sentiment == "positive":
+            return {
+                "intent": "POSITIVE_FEEDBACK",
+                "risk_level": "LOW",
+                "sentiment": "positive",
+                "confidence": 0.85,
+                "department": "general",
+                "recommended_action": "PUBLIC_REPLY",
+                "is_private_reply_eligible": False
+            }
+
+        # 10. Fallback Negative Feedback
+        if sentiment == "negative":
+            return {
+                "intent": "NEGATIVE_FEEDBACK",
+                "risk_level": "HIGH",
+                "sentiment": "negative",
+                "confidence": 0.80,
+                "department": "support",
+                "recommended_action": "ESCALATE_TO_STAFF",
+                "is_private_reply_eligible": True
+            }
+
+        # 11. General / Unknown
+        return {
+            "intent": "GENERAL_ENQUIRY",
+            "risk_level": "LOW",
+            "sentiment": "neutral",
+            "confidence": 0.70,
+            "department": "general",
+            "recommended_action": "PUBLIC_REPLY",
+            "is_private_reply_eligible": False
+        }
+
     def check_safety(self, message: str) -> bool:
         """
         Basic safety check using keywords.

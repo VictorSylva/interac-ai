@@ -24,6 +24,10 @@ services:
         value: production
       - key: ENV
         value: production
+      - key: FRONTEND_URL
+        value: "https://interacai.com"
+      - key: ALLOWED_ORIGINS
+        value: "https://interacai.com,https://www.interacai.com,https://interac-ai.web.app,https://interacai-prod.firebaseapp.com"
 
       # AI Provider (OpenRouter)
       - key: OPENROUTER_API_KEY
@@ -31,15 +35,19 @@ services:
       - key: OPENROUTER_MODEL
         value: "deepseek/deepseek-chat"
 
-      # Email (SMTP)
-      - key: SMTP_HOST
-        value: "smtp.gmail.com"
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
+      # Email (Resend HTTP API)
+      - key: RESEND_API_KEY
         sync: false
-      - key: SMTP_PASSWORD
+      - key: DEFAULT_FROM_EMAIL
+        value: "notifications@interacai.com"
+
+      # Push Notifications (WebPush / VAPID)
+      - key: VAPID_PUBLIC_KEY
+        value: "BGraXz6LblLPtNakVurezDGyqcnng4PmZ2-552A-hDu__A5Q-6r7Y89E792p52lLU86PccAFM0uh14FBIEvlefY"
+      - key: VAPID_PRIVATE_KEY
         sync: false
+      - key: VAPID_EMAIL
+        value: "mailto:interacai.int@gmail.com"
 
       # WhatsApp
       - key: WHATSAPP_API_TOKEN

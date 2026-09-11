@@ -19,6 +19,7 @@ import WorkflowBuilder from './pages/WorkflowBuilder';
 import WorkflowHistory from './pages/WorkflowHistory';
 import BusinessProfile from './pages/BusinessProfile';
 import WhatsAppSetup from './pages/WhatsAppSetup';
+import MetaChannelsSetup from './pages/MetaChannelsSetup';
 import Leads from './pages/Leads';
 import Scheduling from './pages/Scheduling';
 import SecurityIntelligence from './pages/SecurityIntelligence';
@@ -72,6 +73,7 @@ function App() {
             <Route path="education/*" element={<IndustryExtensionPage />} />
             <Route path="agriculture/*" element={<IndustryExtensionPage />} />
             <Route path="whatsapp-setup" element={<WhatsAppSetup />} />
+            <Route path="meta-setup" element={<MetaChannelsSetup />} />
 
 
 

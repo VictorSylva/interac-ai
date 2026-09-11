@@ -1,6 +1,6 @@
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 
-const liveBackendUrl = "https://interact-backend-staging.onrender.com";
+const liveBackendUrl = "https://interact-backend-production.onrender.com";
 
 const rawApiUrl = isLocal 
   ? (process.env.REACT_APP_API_URL || "http://localhost:8000")

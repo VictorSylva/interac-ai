@@ -40,7 +40,7 @@ def load_config():
             "GEMINI_API_KEY", "GEMINI_MODEL", "WHATSAPP_VERIFY_TOKEN",
             "WHATSAPP_API_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "SECRET_KEY",
             "PAYSTACK_SECRET_KEY", "PAYSTACK_PUBLIC_KEY", "FRONTEND_URL",
-            "COST_PER_TOKEN", "ARGUS_CORE_URL"
+            "COST_PER_TOKEN", "ARGUS_CORE_URL", "RESEND_API_KEY", "DEFAULT_FROM_EMAIL"
         ]
         if os.getenv(key) is not None
     }
@@ -50,10 +50,12 @@ def load_config():
     if allowed_origins:
         config_dict["ALLOWED_ORIGINS"] = [origin.strip().rstrip("/") for origin in allowed_origins.split(",")]
     else:
-        # Default fallback list
+        # Default fallback list prioritizing Namecheap custom domain and Firebase preview
         config_dict["ALLOWED_ORIGINS"] = [
             "https://interacai.com", 
+            "https://www.interacai.com",
             "https://interac-ai.web.app",
+            "https://interacai-prod.firebaseapp.com",
             "http://localhost:3000"
         ]
         
@@ -72,9 +74,7 @@ def load_config():
 
     # Safety Fallback for FRONTEND_URL in staging/production
     if env in ["staging", "production"] and (not config_dict.get("FRONTEND_URL") or "localhost" in config_dict.get("FRONTEND_URL")):
-        # If we are on Render, we can't easily guess the frontend, but we can at least 
-        # avoid localhost. Default to the production URL if nothing else is provided.
-        config_dict["FRONTEND_URL"] = "https://interac-ai.web.app"
+        config_dict["FRONTEND_URL"] = "https://interacai.com"
         logger.warning(f"FRONTEND_URL was missing or local in {env} mode. Falling back to {config_dict['FRONTEND_URL']}")
 
     try:
