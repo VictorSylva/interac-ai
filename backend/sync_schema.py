@@ -49,7 +49,18 @@ async def sync_database():
             f"ALTER TABLE subscription_plans ADD COLUMN {ine} is_public BOOLEAN DEFAULT TRUE;",
             f"ALTER TABLE subscription_plans ADD COLUMN {ine} requires_contact BOOLEAN DEFAULT FALSE;",
             f"ALTER TABLE user_invitations ADD COLUMN {ine} phone VARCHAR;",
-            f"ALTER TABLE business_department_configs ADD COLUMN {ine} property_id VARCHAR;"
+            f"ALTER TABLE business_department_configs ADD COLUMN {ine} property_id VARCHAR;",
+            f"ALTER TABLE conversations ADD COLUMN {ine} external_account_id VARCHAR;",
+            f"ALTER TABLE conversations ADD COLUMN {ine} external_user_id VARCHAR;",
+            f"ALTER TABLE conversations ADD COLUMN {ine} channel VARCHAR;",
+            f"ALTER TABLE conversations ADD COLUMN {ine} channel_metadata {'JSONB' if is_pg else 'JSON'} DEFAULT '{{}}';",
+            f"ALTER TABLE messages ADD COLUMN {ine} external_message_id VARCHAR;",
+            f"ALTER TABLE messages ADD COLUMN {ine} message_type VARCHAR DEFAULT 'text';",
+            f"ALTER TABLE messages ADD COLUMN {ine} channel VARCHAR;",
+            f"ALTER TABLE messages ADD COLUMN {ine} source_post_id VARCHAR;",
+            f"ALTER TABLE messages ADD COLUMN {ine} source_comment_id VARCHAR;",
+            f"ALTER TABLE messages ADD COLUMN {ine} raw_metadata {'JSONB' if is_pg else 'JSON'} DEFAULT '{{}}';",
+            f"ALTER TABLE leads ADD COLUMN {ine} external_identities {'JSONB' if is_pg else 'JSON'} DEFAULT '{{}}';"
         ]
         
         for patch in patches:

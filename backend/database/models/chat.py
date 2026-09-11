@@ -26,6 +26,12 @@ class Conversation(Base):
     last_sentiment = Column(String)
     department = Column(String, nullable=True) # e.g. "sales", "support", "billing"
 
+    # Canonical Omnichannel Extensions
+    external_account_id = Column(String, nullable=True, index=True) # Phone ID / Page ID / IG Account ID
+    external_user_id = Column(String, nullable=True, index=True)    # Phone / PSID / IGSID
+    channel = Column(String, nullable=True, index=True)             # whatsapp, messenger, instagram, facebook_comment, instagram_comment, web
+    channel_metadata = Column(JSON, default=dict)
+
     business = relationship("Business", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation")
 
@@ -37,12 +43,20 @@ class Message(Base):
     conversation_id = Column(String, ForeignKey("conversations.id"), index=True)
     
     text = Column(Text)
-    sender = Column(String) # customer, agent
+    sender = Column(String) # customer, agent, bot
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     platform = Column(String)
     status = Column(String, default="sent") # pending, sent, failed
     
     intent = Column(String)
     sentiment = Column(String)
+
+    # Canonical Omnichannel Extensions
+    external_message_id = Column(String, nullable=True, index=True) # wamid, mid, comment_id
+    message_type = Column(String, default="text")                   # text, comment, private_reply, template, image
+    channel = Column(String, nullable=True, index=True)
+    source_post_id = Column(String, nullable=True, index=True)
+    source_comment_id = Column(String, nullable=True, index=True)
+    raw_metadata = Column(JSON, default=dict)
 
     conversation = relationship("Conversation", back_populates="messages")

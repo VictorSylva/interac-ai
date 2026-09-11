@@ -446,11 +446,13 @@ from routes import (
     retail_routes,
     education_routes,
     copilot_fallback_routes,
-    entitlement_routes
+    entitlement_routes,
+    meta_routes
 )
 
 app.include_router(config_routes.router)
 app.include_router(whatsapp_router, prefix="/whatsapp")
+app.include_router(meta_routes.router)
 app.include_router(token_routes.router, prefix="/api/tokens", tags=["Tokens"])
 app.include_router(subscription_routes.router, prefix="/api/subscriptions", tags=["Subscriptions"])
 app.include_router(entitlement_routes.router)
@@ -519,11 +521,16 @@ async def reply_to_conversation(user_id: str, body: ConversationReply):
     # 2. Ensure mode is set to human (if not already)
     await set_conversation_mode(bid, user_id, mode="human", status="active")
     
-    # 3. Platform specific sending (e.g., if WhatsApp)
-    if platform == "whatsapp":
-        from services.whatsapp_service import send_whatsapp_message
-        phone_number = user_id.split(':')[-1] if ':' in user_id else user_id
-        await send_whatsapp_message(phone_number, body.message, business_id=bid)
+    # 3. Platform specific sending (Omnichannel)
+    from services.omnichannel_engine import omnichannel_engine
+    target_id = user_id.split(':')[-1] if ':' in user_id else user_id
+    clean_id = target_id
+    if target_id.startswith("fb_") or target_id.startswith("ig_"):
+        clean_id = target_id[3:]
+    elif target_id.startswith("fbc_") or target_id.startswith("igc_"):
+        clean_id = target_id[4:]
+
+    await omnichannel_engine.send_outbound_reply(platform, bid, clean_id, body.message)
     
     return {"status": "sent"}
 

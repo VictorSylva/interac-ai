@@ -32,9 +32,13 @@ class BaseConfig(BaseModel):
     
     # Security & CORS
     SECRET_KEY: str = Field(default="insecure-default-key-change-me")
-    ALLOWED_ORIGINS: List[str] = Field(default=["https://interacai.com", "http://localhost:3000"])
-    FRONTEND_URL: str = Field(default="http://localhost:3000")
+    ALLOWED_ORIGINS: List[str] = Field(default=["https://interacai.com", "https://www.interacai.com", "https://interac-ai.web.app", "http://localhost:3000"])
+    FRONTEND_URL: str = Field(default="https://interacai.com")
     
+    # Email Settings (Resend HTTP API)
+    RESEND_API_KEY: Optional[str] = None
+    DEFAULT_FROM_EMAIL: str = Field(default="notifications@interacai.com")
+
     # Paystack Settings
     PAYSTACK_SECRET_KEY: Optional[str] = None
     PAYSTACK_PUBLIC_KEY: Optional[str] = None

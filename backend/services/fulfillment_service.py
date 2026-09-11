@@ -99,7 +99,7 @@ class FulfillmentService:
                             delivery.channel = "email"
                         else:
                             logger.error(f"[Fulfillment] Email delivery FAILED for order {order_id}")
-                            errors.append("Email delivery failed - check SMTP/Resend logs")
+                            errors.append("Email delivery failed - check Resend logs")
                     else:
                         logger.warning(f"[Fulfillment] No email found for order {order_id}")
                         errors.append("No email found for order")
