@@ -157,6 +157,9 @@ async def seed_platform_hq():
                 )
                 session.add(sa_user)
 
+            # Commit users immediately
+            await session.commit()
+
             # 3. Ensure Enterprise Subscriptions for both HQ bids
             for bid in hq_bids:
                 sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == bid)

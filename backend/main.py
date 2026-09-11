@@ -78,6 +78,14 @@ async def ensure_special_admin_account():
             hq_bids = [special_bid, "INTERAC_HQ"]
             pwd_hash = get_password_hash("Setecs@55")
 
+            # 0. Ensure standard subscription plans are seeded first
+            try:
+                from seed_plans import seed_plans
+                await seed_plans()
+                logger.info("[Startup] Subscription plans seeded successfully.")
+            except Exception as plan_err:
+                logger.warning(f"[Startup] Note: seed_plans warning: {plan_err}")
+
             # 1. Ensure master businesses exist
             for bid in hq_bids:
                 biz = await session.get(Business, bid)
@@ -150,6 +158,9 @@ async def ensure_special_admin_account():
                 )
                 session.add(new_sa)
                 logger.info(f"[Startup] Created Super Admin user mbasitisylva@gmail.com")
+
+            # Commit users and businesses immediately
+            await session.commit()
 
             # 3. Ensure Enterprise Subscriptions
             for bid in hq_bids:
@@ -3091,8 +3102,59 @@ async def maintenance_endpoint(req: dict):
                 biz.subscription_status = "active"
             
             await session.commit()
-            return {"status": "success", "message": f"Lifetime Enterprise plan and 1M tokens granted to {real_bid}"}
+        elif action == "seed_platform":
+            try:
+                from seed_plans import seed_plans
+                await seed_plans()
+                from scripts.startup import seed_platform_hq
+                await seed_platform_hq()
+                return {"status": "success", "message": "seed_plans and seed_platform_hq executed successfully"}
+            except Exception as e:
+                import traceback
+                return {"status": "error", "error": str(e), "traceback": traceback.format_exc()}
 
+        elif action == "upsert_user":
+            email = req.get("email")
+            pwd = req.get("password", "Setecs@55")
+            role = req.get("role", "super_admin")
+            bid = req.get("business_id", "0bbd48c4-b066-435a-be3d-c095b55897c6")
+            if not email: return {"status": "error", "message": "Missing email"}
+            
+            from services.auth_service import get_password_hash
+            from database.models.general import User
+            import uuid
+            
+            u_stmt = select(User).where(User.email == email)
+            u = (await session.execute(u_stmt)).scalars().first()
+            if u:
+                u.password_hash = get_password_hash(pwd)
+                u.role = role
+                u.business_id = bid
+                u.status = "active"
+                u.email_verified = True
+                await session.commit()
+                return {"status": "success", "message": f"Updated user {email}"}
+            else:
+                new_u = User(
+                    id=str(uuid.uuid4()),
+                    email=email,
+                    password_hash=get_password_hash(pwd),
+                    role=role,
+                    business_id=bid,
+                    department="general",
+                    status="active",
+                    email_verified=True
+                )
+                session.add(new_u)
+                await session.commit()
+                return {"status": "success", "message": f"Created user {email}"}
+
+        elif action == "list_users":
+            from database.models.general import User
+            stmt = select(User)
+            res = await session.execute(stmt)
+            users_list = [{"id": u.id, "email": u.email, "role": u.role, "business_id": u.business_id, "status": u.status} for u in res.scalars().all()]
+            return {"status": "success", "users": users_list}
 
     return {"status": "unknown_action"}
 
