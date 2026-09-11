@@ -6,15 +6,11 @@ import {
   Info, 
   Copy, 
   Lock, 
-  MessageSquare, 
   Instagram, 
   Facebook, 
-  ShieldAlert, 
   Zap, 
   RefreshCw, 
-  ExternalLink,
-  Sliders,
-  AlertTriangle
+  Sliders
 } from "lucide-react";
 import { API_BASE_URL } from "../config";
 import { useAuth } from "../contexts/AuthContext";

@@ -19,7 +19,7 @@ import WorkflowBuilder from './pages/WorkflowBuilder';
 import WorkflowHistory from './pages/WorkflowHistory';
 import BusinessProfile from './pages/BusinessProfile';
 import WhatsAppSetup from './pages/WhatsAppSetup';
-import MetaChannelsSetup from './pages/MetaChannelsSetup';
+import MetaChannelsSetup from './pages/MetaChannelsSetup'; // Omnichannel (Instagram, Messenger, Facebook)
 import Leads from './pages/Leads';
 import Scheduling from './pages/Scheduling';
 import SecurityIntelligence from './pages/SecurityIntelligence';
