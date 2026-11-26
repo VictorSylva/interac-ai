@@ -1,13 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, Hotel, Landmark, ShoppingBag, ShieldCheck, 
-  Stethoscope, BookOpen, CheckCircle2, XCircle, Loader2, Sparkles, Zap, ArrowRight 
+  Stethoscope, BookOpen, CheckCircle2, XCircle, Loader2, Sparkles, Zap, ArrowRight, Briefcase 
 } from 'lucide-react';
 import { API_BASE_URL } from '../config';
 import { useAuth } from '../contexts/AuthContext';
 import Loader from '../components/Loader';
 
 const MODULE_METADATA = {
+  module_sme: {
+    icon: Briefcase,
+    color: 'from-blue-500/20 to-indigo-500/10 text-blue-400 border-blue-500/30',
+    btnBg: 'bg-blue-600 hover:bg-blue-500',
+    tags: ['Product & Service', 'Omnichannel CRM', 'Argus Intelligence']
+  },
   module_retail: {
     icon: ShoppingBag,
     color: 'from-amber-500/20 to-orange-500/10 text-amber-400 border-amber-500/30',

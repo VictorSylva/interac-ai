@@ -1019,12 +1019,16 @@ export default function DashboardOverview() {
                  <div className="mb-6">
                     <div className="flex justify-between items-end mb-2">
                       <span className="text-sm text-slate-400">Tokens Remaining</span>
-                      <span className="text-2xl font-black text-white">{(data?.balance?.conversations_remaining || 0).toLocaleString()}</span>
+                      <span className="text-2xl font-black text-white">{(data?.balance?.total_balance !== undefined ? data.balance.total_balance : (data?.balance?.conversations_remaining || 0)).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-slate-500 mb-2">
+                       <span>Available Quota</span>
+                       <span>~{(data?.balance?.conversations_remaining || 0).toLocaleString()} AI chats</span>
                     </div>
                     <div className="w-full bg-white/5 h-3 rounded-full overflow-hidden">
                        <div 
                         className="bg-gradient-to-r from-indigo-500 to-blue-400 h-full transition-all duration-1000 shadow-[0_0_10px_rgba(99,102,241,0.5)]" 
-                        style={{ width: `${Math.min(100, ((data?.balance?.conversations_remaining || 0) / 500) * 100)}%` }} 
+                        style={{ width: `${Math.min(100, Math.max(5, ((data?.balance?.total_balance || 0) / (data?.balance?.subscription_balance || data?.balance?.total_balance || 1)) * 100))}%` }} 
                        />
                     </div>
                  </div>

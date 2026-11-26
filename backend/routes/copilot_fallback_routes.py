@@ -140,6 +140,38 @@ async def get_graph_topology(db: AsyncSession = Depends(get_db)):
                 room_entity = next((r for r in entities if r.display_label == room_number or r.external_ref_id == room_number), None)
                 if room_entity:
                     add_link(ent.id, room_entity.id, "ORDER_PLACED_FROM")
+
+        elif type_code == "sme_order":
+            cust_id = attrs.get("customer_id")
+            if cust_id and cust_id in nodes_set:
+                add_link(cust_id, ent.id, "PLACED_ORDER")
+            for item in attrs.get("items", []):
+                p_id = item.get("product_id") or item.get("id")
+                if p_id and p_id in nodes_set:
+                    add_link(ent.id, p_id, "CONTAINS_PRODUCT")
+
+        elif type_code == "sme_appointment":
+            cust_id = attrs.get("customer_id")
+            if cust_id and cust_id in nodes_set:
+                add_link(cust_id, ent.id, "BOOKED_APPOINTMENT")
+            svc_id = attrs.get("service_id")
+            if svc_id and svc_id in nodes_set:
+                add_link(ent.id, svc_id, "FOR_SERVICE")
+
+        elif type_code == "sme_purchase_order":
+            sup_id = attrs.get("supplier_id")
+            if sup_id and sup_id in nodes_set:
+                add_link(sup_id, ent.id, "FULFILLS_PO")
+
+        elif type_code == "sme_project_task":
+            prj_id = attrs.get("project_id")
+            if prj_id and prj_id in nodes_set:
+                add_link(prj_id, ent.id, "HAS_TASK")
+
+        elif type_code == "sme_invoice":
+            cust_id = attrs.get("customer_id")
+            if cust_id and cust_id in nodes_set:
+                add_link(cust_id, ent.id, "BILLED_TO")
                     
     return {"nodes": nodes, "links": links}
 

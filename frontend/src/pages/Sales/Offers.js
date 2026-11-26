@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Plus, Link as LinkIcon, Edit, Trash2, CheckCircle, Image as ImageIcon, MessageSquare, DollarSign, List, ArrowLeft } from 'lucide-react';
+import { Plus, Link as LinkIcon, Edit, Trash2, CheckCircle, Image as ImageIcon, MessageSquare, DollarSign, List, ArrowLeft, Building2 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
 const Offers = () => {
@@ -9,6 +10,7 @@ const Offers = () => {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [currentOfferId, setCurrentOfferId] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isPaymentConfigured, setIsPaymentConfigured] = useState(true);
     
     // Form state
     const [title, setTitle] = useState('');
@@ -30,8 +32,35 @@ const Offers = () => {
     const [pricePositioning, setPricePositioning] = useState('Standard');
     
     useEffect(() => {
-        if (currentUser) fetchOffers();
+        if (currentUser) {
+            fetchOffers();
+            checkPaymentStatus();
+        }
     }, [currentUser]);
+
+    const checkPaymentStatus = async () => {
+        const businessId = currentUser?.business_id || currentUser?.email || "default";
+        let token = currentUser?.token;
+        if (!token) {
+            try {
+                const stored = localStorage.getItem("user");
+                if (stored) token = JSON.parse(stored)?.token;
+            } catch (e) {}
+        }
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/sales/payment/config?business_id=${encodeURIComponent(businessId)}`, {
+                headers: token ? { "Authorization": `Bearer ${token}` } : {}
+            });
+            const data = await res.json();
+            if (data.status === "success" && data.config) {
+                setIsPaymentConfigured(Boolean(data.config.configured && data.config.is_active));
+            } else {
+                setIsPaymentConfigured(false);
+            }
+        } catch (e) {
+            setIsPaymentConfigured(false);
+        }
+    };
     
     const fetchOffers = async () => {
         const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -307,6 +336,28 @@ const Offers = () => {
                     <Plus size={20} /> Build New Offer
                 </button>
             </div>
+
+            {!isPaymentConfigured && (
+                <div className="mb-8 p-4 sm:p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-fade-in">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-md">
+                            <Building2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-slate-800 text-sm">Direct Bank Payouts Not Connected</h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                Set up your business bank account so that 100% of customer purchases on your offer links deposit directly into your account via Paystack.
+                            </p>
+                        </div>
+                    </div>
+                    <Link
+                        to="/dashboard/sales/payment-setup"
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-blue-500/20 flex-shrink-0 active:scale-95"
+                    >
+                        Setup Payout Bank &rarr;
+                    </Link>
+                </div>
+            )}
             
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {offers.length === 0 ? (

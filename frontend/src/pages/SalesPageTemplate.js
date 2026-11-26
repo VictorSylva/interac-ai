@@ -16,7 +16,7 @@ const SalesPageTemplate = () => {
     const [assessmentAnswers, setAssessmentAnswers] = useState({});
 
     useEffect(() => {
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        const apiUrl = API_BASE_URL;
         
         const fetchPage = async () => {
             try {
@@ -60,7 +60,7 @@ const SalesPageTemplate = () => {
     const handleCheckout = async (e) => {
         e.preventDefault();
         setIsCheckingOut(true);
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        const apiUrl = API_BASE_URL;
 
         try {
             const res = await fetch(`${apiUrl}/api/sales/public/checkout`, {
@@ -185,14 +185,27 @@ const SalesPageTemplate = () => {
                                 {/* Price Summary */}
                                 <div className="flex items-center justify-between py-6 mb-8 border-b border-slate-100">
                                     <div className="flex flex-col">
-                                        <span className="text-slate-400 font-semibold uppercase tracking-wider text-sm mb-1">Total Due Today</span>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-slate-400 font-semibold uppercase tracking-wider text-sm">Total Due Today</span>
+                                            {pageData.offer.stock !== undefined && (
+                                                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                                                    pageData.offer.stock > 0 
+                                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                                }`}>
+                                                    {pageData.offer.stock > 0 ? `${pageData.offer.stock} in stock` : 'Out of stock'}
+                                                </span>
+                                            )}
+                                        </div>
                                         <span className="text-slate-900 font-bold text-4xl flex items-baseline gap-2">
                                             <span className="text-2xl text-slate-400 font-semibold">{pageData.offer.currency === 'NGN' ? '₦' : '$'}</span>
-                                            {pageData.offer.price} 
+                                            {typeof pageData.offer.price === 'number' 
+                                                ? pageData.offer.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                                                : pageData.offer.price} 
                                             <span className="text-lg font-medium text-slate-400 ml-1">{pageData.offer.currency}</span>
                                         </span>
                                     </div>
-                                    <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center border border-green-100">
+                                    <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center border border-green-100 shadow-sm">
                                         <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                                     </div>
                                 </div>

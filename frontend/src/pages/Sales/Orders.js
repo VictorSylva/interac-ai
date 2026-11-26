@@ -13,14 +13,30 @@ const Orders = () => {
         }
     }, [currentUser]);
     
+    const getAuthHeaders = () => {
+        let token = localStorage.getItem('token') || localStorage.getItem('access_token') || sessionStorage.getItem('token');
+        if (!token) {
+            try {
+                const user = JSON.parse(localStorage.getItem('interact_user') || '{}');
+                token = user.token || user.access_token;
+            } catch (e) {}
+        }
+        return {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        };
+    };
+    
     const fetchOrders = async () => {
         const businessId = currentUser.business_id || currentUser.email;
         const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
         try {
-            const res = await fetch(`${apiUrl}/api/sales/orders?business_id=${businessId}`);
+            const res = await fetch(`${apiUrl}/api/sales/orders?business_id=${encodeURIComponent(businessId)}`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data = await res.json();
-                setOrders(data);
+                setOrders(Array.isArray(data) ? data : []);
             }
         } catch(e) {
         } finally {

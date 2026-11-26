@@ -59,6 +59,14 @@ async def register_business(session, email, password, business_name):
     existing_user = result.scalars().first()
     
     if existing_user:
+        stmt_biz = select(Business).where(Business.id == existing_user.business_id)
+        biz_res = await session.execute(stmt_biz)
+        b_record = biz_res.scalar_one_or_none()
+        if b_record and b_record.is_deleted:
+            raise ValueError(
+                f"A user with email '{email}' exists under deactivated business '{b_record.name}'. "
+                f"To reuse this email, please permanently delete the deactivated account from Super Admin."
+            )
         raise ValueError("User with this email already exists")
 
     from database.models.billing import BusinessSubscription, TokenWallet
@@ -107,8 +115,10 @@ async def register_business(session, email, password, business_name):
     # 5. Default Settings
     settings = BusinessSettings(
         business_id=business_id,
+        industry="general",
         description=f"Business profile for {business_name}",
-        tone="professional"
+        tone="professional",
+        installed_modules=[]
     )
     session.add(settings)
     
@@ -247,13 +257,30 @@ DEFAULT_ROLE_PERMISSIONS = {
         "hotel.finance.read"
     ],
     "finance": [
-        "hotel.finance.read", "hotel.finance.export", "billing.manage"
+        "hotel.finance.read", "hotel.finance.export", "billing.manage",
+        "sme.invoices.read", "sme.invoices.write", "sme.expenses.write", "sme.payments.read", "sme.reports.read"
     ],
     "accounts": [
-        "hotel.finance.read", "hotel.finance.export", "billing.manage"
+        "hotel.finance.read", "hotel.finance.export", "billing.manage",
+        "sme.invoices.read", "sme.invoices.write", "sme.expenses.write", "sme.payments.read", "sme.reports.read"
+    ],
+    "sales": [
+        "sme.customers.read", "sme.customers.write", "sme.leads.write", "sme.quotes.write", "sme.orders.write", "conversation.reply"
+    ],
+    "operations": [
+        "sme.projects.write", "sme.tasks.write", "sme.appointments.read", "sme.orders.write"
+    ],
+    "inventory": [
+        "sme.products.write", "sme.inventory.write", "sme.suppliers.write", "sme.purchase_orders.write"
+    ],
+    "customer_service": [
+        "sme.customers.read", "sme.appointments.write", "sme.orders.read", "conversation.reply"
+    ],
+    "staff": [
+        "sme.tasks.read", "sme.tasks.write", "sme.appointments.read", "conversation.reply"
     ],
     "agent": [
-        "conversation.reply"
+        "conversation.reply", "sme.customers.read", "sme.tasks.read"
     ],
     "registrar": [
         "education.students.read", "education.students.write", "education.admissions.read", "education.admissions.write", "conversation.reply"
@@ -265,7 +292,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "education.students.read", "education.learning.read"
     ],
     "cashier": [
-        "retail.pos.read", "retail.pos.write", "retail.inventory.read"
+        "retail.pos.read", "retail.pos.write", "retail.inventory.read", "sme.orders.write"
     ],
     "doctor": [
         "hospital.patients.read", "hospital.patients.write", "hospital.appointments.read", "hospital.emr.read", "hospital.emr.write"
@@ -277,7 +304,7 @@ DEFAULT_ROLE_PERMISSIONS = {
         "hospital.patients.read", "hospital.pharmacy.read", "hospital.pharmacy.write"
     ],
     "viewer": [
-        "hotel.reservations.read", "security.cameras.view"
+        "hotel.reservations.read", "security.cameras.view", "sme.reports.read"
     ]
 }
 

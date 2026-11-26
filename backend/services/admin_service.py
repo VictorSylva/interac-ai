@@ -40,9 +40,9 @@ class AdminService:
                 user = result.scalar_one_or_none()
                 if user:
                     return (
-                        user.role in ["super_admin", "admin", "owner"] or
+                        user.role == "super_admin" or
                         user.email.lower() in ["interacai.int@gmail.com", "mbasitisylva@gmail.com"] or
-                        user.business_id in ["0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"]
+                        (user.business_id in ["0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"] and user.role in ["super_admin", "admin"])
                     )
                 return False
             except Exception as e:
@@ -71,15 +71,24 @@ class AdminService:
                 result = await session.execute(stmt)
                 rows = result.all()
                 
+                # Fetch primary user / owner emails mapped to business
+                user_stmt = select(User.business_id, User.email).where(User.business_id.isnot(None))
+                user_res = await session.execute(user_stmt)
+                biz_emails = {}
+                for ubid, uemail in user_res.all():
+                    if ubid and ubid not in biz_emails:
+                        biz_emails[ubid] = uemail
+                
                 businesses = []
                 for b, s, cp, sub, w in rows:
                     total_tokens = (w.sub_balance or 0) + (w.payg_balance or 0) if w else 0
                     businesses.append({
                         "business_id": b.id,
                         "name": b.name,
+                        "owner_email": biz_emails.get(b.id),
                         "is_deleted": b.is_deleted,
                         "created_at": b.created_at.isoformat() if b.created_at else None,
-                        "industry": s.industry if s else "hotel",
+                        "industry": s.industry if s and s.industry else "general",
                         "installed_modules": s.installed_modules if s and s.installed_modules else [],
                         "status": sub.status if sub else "active",
                         "commercial_status": cp.commercial_status if cp else "customer_active",
@@ -115,7 +124,7 @@ class AdminService:
             } for u in users]
             
             # Catalog template for this business industry
-            ind = bundle.get("industry", "hotel")
+            ind = bundle.get("industry", "general")
             bundle["catalog_template"] = INDUSTRY_CAPABILITIES_CATALOG.get(ind, INDUSTRY_CAPABILITIES_CATALOG["general"])
             
         return bundle
@@ -277,6 +286,225 @@ class AdminService:
                 logger.error(f"Error reactivating business {business_id}: {e}")
                 await session.rollback()
                 return False
+
+    async def hard_delete_business(self, business_id: str, admin_id: str = None, reason: str = None):
+        """
+        Permanently purges a business tenant and all associated records 
+        (users, billing, settings, chats, workflows, etc.) from the database.
+        Frees up user email addresses for immediate reuse.
+        """
+        from services.db_service import resolve_business_id
+        bid = await resolve_business_id(business_id)
+
+        # Safety Check: Never allow deleting the primary HQ system business
+        if str(bid).upper() in ["INTERAC_HQ", "0BBD48C4-B066-435A-BE3D-C095B55897C6"]:
+            raise ValueError("Cannot permanently delete the primary InteracAI HQ system business.")
+
+        async with AsyncSessionLocal() as session:
+            try:
+                # 1. Check if business exists
+                res_biz = await session.execute(text("SELECT id, name FROM businesses WHERE id = :bid"), {"bid": bid})
+                biz_row = res_biz.first()
+                if not biz_row:
+                    logger.warning(f"Business {bid} not found for permanent deletion.")
+                    return False
+                biz_name = biz_row[1]
+
+                # 2. Get all user emails belonging to this business for logging
+                res_users = await session.execute(text("SELECT id, email FROM users WHERE business_id = :bid"), {"bid": bid})
+                user_rows = res_users.fetchall()
+                user_emails = [r[1] for r in user_rows]
+                logger.info(f"Purging business {biz_name} ({bid}) and associated users: {user_emails}")
+
+                # 3. Clean up user-dependent records first
+                # Push subscriptions & login audit logs
+                await session.execute(text("""
+                    DELETE FROM push_subscriptions WHERE user_id IN (
+                        SELECT id FROM users WHERE business_id = :bid
+                    )
+                """), {"bid": bid})
+
+                try:
+                    await session.execute(text("""
+                        DELETE FROM login_audit_logs WHERE user_id IN (
+                            SELECT id FROM users WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                except Exception:
+                    pass
+
+                # Nullify references in admin_audit_logs and system_logs so foreign keys don't fail
+                try:
+                    await session.execute(text("""
+                        UPDATE admin_audit_logs SET admin_id = NULL WHERE admin_id IN (
+                            SELECT id FROM users WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                except Exception:
+                    pass
+
+                try:
+                    await session.execute(text("""
+                        UPDATE system_logs SET admin_id = NULL WHERE admin_id IN (
+                            SELECT id FROM users WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                except Exception:
+                    pass
+
+                # 4. Clean up child records of child records:
+                # Sales orders -> sales deliveries
+                try:
+                    await session.execute(text("""
+                        DELETE FROM sales_deliveries WHERE order_id IN (
+                            SELECT id FROM sales_orders WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing sales_deliveries: {e}")
+
+                # Sales tables
+                for tbl in ["sales_orders", "sales_pages", "sales_offers"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Workflows: execution_steps -> workflow_executions, workflow_edges, workflow_nodes -> workflows
+                try:
+                    await session.execute(text("""
+                        DELETE FROM execution_steps WHERE execution_id IN (
+                            SELECT id FROM workflow_executions WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing execution_steps: {e}")
+
+                try:
+                    await session.execute(text("DELETE FROM workflow_executions WHERE business_id = :bid"), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing workflow_executions: {e}")
+
+                try:
+                    await session.execute(text("""
+                        DELETE FROM workflow_edges WHERE workflow_id IN (
+                            SELECT id FROM workflows WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                    await session.execute(text("""
+                        DELETE FROM workflow_nodes WHERE workflow_id IN (
+                            SELECT id FROM workflows WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                    await session.execute(text("DELETE FROM workflows WHERE business_id = :bid"), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing workflows: {e}")
+
+                # Behavior Analytics
+                for tbl in ["ba_events", "ba_sessions", "ba_aggregates"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Appointments & Scheduling
+                for tbl in ["appointments", "availability_rules", "appointment_types"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # CRM & Activities
+                for tbl in ["lead_activities", "tickets", "leads"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Chat & Notifications
+                for tbl in ["business_notification_events", "messages", "conversations"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Invoicing
+                try:
+                    await session.execute(text("""
+                        DELETE FROM custom_invoice_items WHERE invoice_id IN (
+                            SELECT id FROM custom_invoices WHERE business_id = :bid
+                        )
+                    """), {"bid": bid})
+                    await session.execute(text("DELETE FROM custom_invoices WHERE business_id = :bid"), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing custom_invoices: {e}")
+
+                # Entitlements & Overrides
+                for tbl in ["entitlement_overrides", "business_entitlements", "commercial_profiles"]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Billing & Subscriptions
+                for tbl in [
+                    "payment_transactions", "token_transactions", "token_wallets", 
+                    "business_usage_metrics", "business_subscriptions"
+                ]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Business Configs & General
+                for tbl in [
+                    "business_whatsapp_configs", "business_meta_configs", "business_email_configs",
+                    "business_department_configs", "business_settings", "knowledge_docs",
+                    "properties", "user_invitations"
+                ]:
+                    try:
+                        await session.execute(text(f"DELETE FROM {tbl} WHERE business_id = :bid"), {"bid": bid})
+                    except Exception as e:
+                        logger.warning(f"Error clearing {tbl}: {e}")
+
+                # Delete audit logs targeting this business so foreign key doesn't block deletion
+                try:
+                    await session.execute(text("DELETE FROM admin_audit_logs WHERE business_id = :bid"), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing admin_audit_logs for business {bid}: {e}")
+
+                # Delete Users for this business (frees the email address)
+                await session.execute(text("DELETE FROM users WHERE business_id = :bid"), {"bid": bid})
+
+                # Delete Roles
+                try:
+                    await session.execute(text("DELETE FROM roles WHERE business_id = :bid"), {"bid": bid})
+                except Exception as e:
+                    logger.warning(f"Error clearing roles: {e}")
+
+                # Finally, delete Business itself
+                await session.execute(text("DELETE FROM businesses WHERE id = :bid"), {"bid": bid})
+
+                # Record an audit log for this permanent deletion (with business_id=None)
+                try:
+                    audit = AdminAuditLog(
+                        admin_id=admin_id,
+                        business_id=None,
+                        action="business.permanent_delete",
+                        target_resource=f"business:{bid}",
+                        reason=reason or f"Permanently deleted business '{biz_name}' ({bid}) and freed emails ({', '.join(user_emails)})"
+                    )
+                    session.add(audit)
+                except Exception as e:
+                    logger.warning(f"Could not write audit log for permanent deletion: {e}")
+
+                await session.commit()
+                logger.info(f"✅ Successfully permanently deleted business '{biz_name}' ({bid}) and all related records.")
+                return True
+            except Exception as e:
+                logger.error(f"Error permanently deleting business {business_id}: {e}", exc_info=True)
+                await session.rollback()
+                raise
 
     async def manual_token_credit(self, business_id: str, amount: int, admin_id: str = None, reason: str = None):
         """Manually credits tokens to a business wallet with full audit trail."""
@@ -494,7 +722,7 @@ class AdminService:
                     contact_name=lead_data["contact_name"],
                     email=lead_data["email"],
                     phone=lead_data.get("phone"),
-                    industry=lead_data.get("industry", "hotel"),
+                    industry=lead_data.get("industry", "general"),
                     employee_count=lead_data.get("employee_count"),
                     primary_challenges=lead_data.get("primary_challenges", []),
                     current_systems=lead_data.get("current_systems"),

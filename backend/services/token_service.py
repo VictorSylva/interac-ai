@@ -29,25 +29,26 @@ class TokenService:
                 wallet = result.scalar_one_or_none()
                 
                 if not wallet:
-                    # Auto-initialize wallet if missing (Safety Guard)
-                    logger.info(f"[TokenService] Initializing missing wallet for {business_id} with default allowance")
+                    from database.models.entitlement import BusinessEntitlement
+                    ent_stmt = select(BusinessEntitlement.numeric_limit).where(
+                        BusinessEntitlement.business_id == business_id,
+                        BusinessEntitlement.entitlement_key == "ai.tokens"
+                    )
+                    ent_res = await session.execute(ent_stmt)
+                    ent_tokens = ent_res.scalar_one_or_none()
+                    init_balance = int(ent_tokens) if ent_tokens is not None else 5000
+
+                    logger.info(f"[TokenService] Initializing missing wallet for {business_id} with allowance {init_balance}")
                     wallet = TokenWallet(
                         business_id=business_id, 
-                        sub_balance=1000000, 
+                        sub_balance=init_balance, 
                         payg_balance=0,
                         status="active"
                     )
                     session.add(wallet)
                     await session.commit()
                     await session.refresh(wallet)
-                elif (wallet.sub_balance or 0) + (wallet.payg_balance or 0) <= 100:
-                    # Auto-replenish depleted wallet for active operating tenants
-                    logger.info(f"[TokenService] Auto-replenishing depleted wallet for {business_id}")
-                    wallet.sub_balance = (wallet.sub_balance or 0) + 1000000
-                    session.add(wallet)
-                    await session.commit()
-                    await session.refresh(wallet)
-                
+
                 return wallet
             except Exception as e:
                 logger.error(f"[TokenService] Error fetching wallet for {business_id}: {e}")

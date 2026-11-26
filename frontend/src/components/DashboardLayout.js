@@ -88,11 +88,10 @@ export default function DashboardLayout() {
     }
   };
 
-  const isSuperAdminOrOwner = (
+  const isSuperAdmin = (
     userRole === 'super_admin' || 
-    userRole === 'owner' || 
     currentUser?.role === 'super_admin' || 
-    currentUser?.role === 'owner' ||
+    currentUser?.is_super_admin === true ||
     currentUser?.email === 'interacai.int@gmail.com' ||
     currentUser?.email === 'mbasitisylva@gmail.com'
   );
@@ -112,8 +111,8 @@ export default function DashboardLayout() {
     { icon: Layers, label: 'Industry Modules', path: '/dashboard/modules', roles: ['owner', 'admin'] },
     { icon: Settings, label: 'Settings & Profile', path: '/dashboard/profile', roles: ['owner', 'admin'] },
     { icon: Shield, label: 'Billing & Subscription', path: '/dashboard/subscription', roles: ['owner', 'admin'] },
-    ...(isSuperAdminOrOwner ? [
-      { icon: Sliders, label: 'Control Center (Super Admin)', path: '/super-admin', roles: ['owner', 'super_admin'] }
+    ...(isSuperAdmin ? [
+      { icon: Sliders, label: 'Control Center (Super Admin)', path: '/super-admin', roles: ['super_admin'] }
     ] : [])
   ];
 
@@ -158,6 +157,8 @@ export default function DashboardLayout() {
           iconComp = Activity;
         } else if (mod.id === 'module_agriculture') {
           iconComp = Layers;
+        } else if (mod.id === 'module_sme') {
+          iconComp = Briefcase;
         }
 
         moduleMenuItems.push({

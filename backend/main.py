@@ -381,7 +381,17 @@ async def startup_event():
                     "ALTER TABLE users ADD COLUMN {ine} receive_operational_alerts BOOLEAN DEFAULT TRUE",
                     "ALTER TABLE users ADD COLUMN {ine} notification_preference VARCHAR DEFAULT 'all'",
                     "ALTER TABLE user_invitations ADD COLUMN {ine} phone VARCHAR",
-                    "ALTER TABLE business_settings ADD COLUMN {ine} notification_cooldown_minutes INTEGER DEFAULT 30"
+                    "ALTER TABLE business_settings ADD COLUMN {ine} notification_cooldown_minutes INTEGER DEFAULT 30",
+                    "ALTER TABLE conversations ADD COLUMN {ine} external_account_id VARCHAR",
+                    "ALTER TABLE conversations ADD COLUMN {ine} external_user_id VARCHAR",
+                    "ALTER TABLE conversations ADD COLUMN {ine} channel VARCHAR",
+                    "ALTER TABLE conversations ADD COLUMN {ine} channel_metadata TEXT DEFAULT '{{}}'",
+                    "ALTER TABLE messages ADD COLUMN {ine} external_message_id VARCHAR",
+                    "ALTER TABLE messages ADD COLUMN {ine} message_type VARCHAR DEFAULT 'text'",
+                    "ALTER TABLE messages ADD COLUMN {ine} channel VARCHAR",
+                    "ALTER TABLE messages ADD COLUMN {ine} source_post_id VARCHAR",
+                    "ALTER TABLE messages ADD COLUMN {ine} source_comment_id VARCHAR",
+                    "ALTER TABLE messages ADD COLUMN {ine} raw_metadata TEXT DEFAULT '{{}}'"
                 ]
                 
                 for stmt in statements:
@@ -524,7 +534,8 @@ from routes import (
     education_routes,
     copilot_fallback_routes,
     entitlement_routes,
-    meta_routes
+    meta_routes,
+    sme_routes
 )
 
 app.include_router(config_routes.router)
@@ -541,6 +552,7 @@ app.include_router(debug_routes.router, prefix="/api/debug", tags=["Debug"])
 app.include_router(entity_routes.router)
 app.include_router(observation_routes.router)
 app.include_router(module_routes.router)
+app.include_router(sme_routes.router)
 app.include_router(hotel_routes.router)
 app.include_router(hospital_routes.router)
 app.include_router(retail_routes.router)
@@ -2233,6 +2245,27 @@ async def web_chat(body: WebMessage):
                     
                     logger.info(f"[Chat] Triggering 'appointment_booked' for email: {customer_email}")
                     await workflow_engine.trigger_workflow(real_business_id, "appointment_booked", trigger_data)
+
+                    # Mirror into SME Workspace & ARGUS OS if SME module is active
+                    try:
+                        from services.sme_service import sme_service
+                        apt_type_name = resolved_type.name if resolved_type else "General Session"
+                        duration_mins = resolved_type.duration_minutes if resolved_type else 30
+                        async with AsyncSessionLocal() as session:
+                            await sme_service.record_appointment(
+                                db=session,
+                                org_id=real_business_id,
+                                appointment_data={
+                                    "customer_name": customer_name or "Valued Customer",
+                                    "service_name": apt_type_name,
+                                    "start_time": start_at.isoformat(),
+                                    "duration_minutes": duration_mins,
+                                    "status": "CONFIRMED",
+                                    "notes": f"Booked by AI Assistant via Chat ({body.user_id})"
+                                }
+                            )
+                    except Exception as sme_sync_err:
+                        logger.warning(f"[Chat] Could not mirror booking to SME module: {sme_sync_err}")
                     
                     # Direct Email Send to Customer with Google Calendar link
                     if customer_email:

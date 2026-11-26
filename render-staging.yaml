@@ -25,9 +25,9 @@ services:
       - key: ENV
         value: staging
       - key: FRONTEND_URL
-        value: "https://interacai.com"
+        value: "https://interac-ai.web.app"
       - key: ALLOWED_ORIGINS
-        value: "https://interacai.com,https://www.interacai.com,https://interac-ai.web.app,https://interacai-staging.firebaseapp.com"
+        value: "https://interac-ai.web.app,https://interac-ai.firebaseapp.com,https://interacai.com,https://www.interacai.com,https://interacai-staging.firebaseapp.com,http://localhost:3000"
 
       # AI Provider (OpenRouter)
       - key: OPENROUTER_API_KEY

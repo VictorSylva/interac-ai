@@ -447,7 +447,7 @@ class EntitlementService:
                             }
                         }
 
-                industry = settings.industry if settings else "hotel"
+                industry = settings.industry if settings and settings.industry else "general"
                 installed_modules = settings.installed_modules if settings and settings.installed_modules else []
 
                 return {
@@ -543,6 +543,41 @@ class EntitlementService:
                             updated_by=admin_id
                         )
                         session.add(ent)
+
+                    # Real-time synchronization of TokenWallet with entitled token quota
+                    if key == "ai.tokens" and numeric_limit is not None:
+                        try:
+                            int_tokens = int(float(numeric_limit))
+                            w_stmt = select(TokenWallet).where(TokenWallet.business_id == business_id)
+                            w_res = await session.execute(w_stmt)
+                            wallet = w_res.scalar_one_or_none()
+                            if wallet:
+                                wallet.sub_balance = int_tokens
+                                wallet.updated_at = datetime.utcnow()
+                                session.add(wallet)
+                            else:
+                                wallet = TokenWallet(
+                                    business_id=business_id,
+                                    sub_balance=int_tokens,
+                                    payg_balance=0,
+                                    status="active"
+                                )
+                                session.add(wallet)
+                        except Exception as w_err:
+                            logger.warning(f"[Entitlement] Failed to sync TokenWallet for {business_id}: {w_err}")
+
+                    # Real-time synchronization of BusinessSubscription conversation limit
+                    if key == "ai.conversations" and numeric_limit is not None:
+                        try:
+                            int_convos = int(float(numeric_limit))
+                            sub_stmt = select(BusinessSubscription).where(BusinessSubscription.business_id == business_id)
+                            sub_res = await session.execute(sub_stmt)
+                            b_sub = sub_res.scalar_one_or_none()
+                            if b_sub:
+                                b_sub.conversation_limit = int_convos
+                                session.add(b_sub)
+                        except Exception as s_err:
+                            logger.warning(f"[Entitlement] Failed to sync BusinessSubscription for {business_id}: {s_err}")
 
                 # Record Compliance Audit Log
                 audit = AdminAuditLog(

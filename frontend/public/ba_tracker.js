@@ -1,6 +1,6 @@
 (function() {
     const CONFIG = {
-        apiEndpoint: window.BA_ENDPOINT || 'https://interacai-backend-staging.onrender.com/api/behavior-analytics/collect',
+        apiEndpoint: window.BA_ENDPOINT || 'https://interact-backend-production.onrender.com/api/behavior-analytics/collect',
         businessId: window.BA_BUSINESS_ID || 'default',
         flushInterval: 8000,
         heartbeatInterval: 30000

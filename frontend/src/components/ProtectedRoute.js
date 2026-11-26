@@ -22,15 +22,14 @@ export default function ProtectedRoute({ children, requiredRole }) {
     return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
-  // SuperAdmin Role check: allow super_admin, owner, or platform admin email
+  // SuperAdmin Role check: allow super_admin role or platform master emails
   if (requiredRole === 'super_admin') {
     const isSuper = 
       userRole === 'super_admin' || 
-      userRole === 'owner' || 
       currentUser?.role === 'super_admin' ||
-      currentUser?.role === 'owner' ||
+      currentUser?.is_super_admin === true ||
       currentUser?.email === 'interacai.int@gmail.com' ||
-      currentUser?.email?.toLowerCase().includes('admin');
+      currentUser?.email === 'mbasitisylva@gmail.com';
 
     if (!isSuper) {
       console.warn(`[Access Guard] Required role super_admin, current user has role ${userRole}`);

@@ -31,6 +31,7 @@ import SalesDashboard from './pages/Sales/SalesDashboard';
 import Offers from './pages/Sales/Offers';
 import Orders from './pages/Sales/Orders';
 import EmailSetup from './pages/Sales/EmailSetup';
+import PaymentSetup from './pages/Sales/PaymentSetup';
 import SalesPageTemplate from './pages/SalesPageTemplate';
 import Subscription from './pages/Subscription';
 
@@ -61,6 +62,7 @@ function App() {
             <Route path="profile" element={<BusinessProfile />} />
 
             <Route path="modules" element={<IndustryModulesPage />} />
+            <Route path="sme/*" element={<IndustryExtensionPage />} />
             <Route path="hotels/*" element={<IndustryExtensionPage />} />
             <Route path="irs/*" element={<IndustryExtensionPage />} />
             <Route path="retail/*" element={<IndustryExtensionPage />} />
@@ -84,6 +86,7 @@ function App() {
               <Route path="offers" element={<Offers />} />
               <Route path="orders" element={<Orders />} />
               <Route path="email-setup" element={<EmailSetup />} />
+              <Route path="payment-setup" element={<PaymentSetup />} />
             </Route>
             <Route path="subscription" element={<Subscription />} />
           </Route>

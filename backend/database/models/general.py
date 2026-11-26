@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, DateTime, Text
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, DateTime, Text, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..base import Base
@@ -22,6 +22,7 @@ class Business(Base):
     whatsapp_config = relationship("BusinessWhatsAppConfig", back_populates="business", uselist=False)
     meta_config = relationship("BusinessMetaConfig", back_populates="business", uselist=False)
     email_config = relationship("BusinessEmailConfig", back_populates="business", uselist=False)
+    payment_config = relationship("BusinessPaymentConfig", back_populates="business", uselist=False)
     activities = relationship("LeadActivity", back_populates="business")
     properties = relationship("Property", back_populates="business")
     roles = relationship("Role", back_populates="business")
@@ -199,6 +200,29 @@ class BusinessMetaConfig(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     business = relationship("Business", back_populates="meta_config")
+
+class BusinessPaymentConfig(Base):
+    """Stores business-specific payment & payout configuration (e.g. Paystack subaccounts)."""
+    __tablename__ = "business_payment_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    business_id = Column(String, ForeignKey("businesses.id"), unique=True, index=True)
+    
+    provider = Column(String, default="paystack") # paystack
+    subaccount_code = Column(String, nullable=True) # ACCT_xxxxxxxxx
+    bank_name = Column(String, nullable=True) # e.g. Guaranty Trust Bank
+    bank_code = Column(String, nullable=True) # e.g. 058
+    account_number = Column(String, nullable=True) # e.g. 0123456789
+    account_name = Column(String, nullable=True) # e.g. MARY AKOR
+    
+    percentage_charge = Column(Float, default=0.0) # 0.0 means 100% of payout goes to merchant
+    settlement_schedule = Column(String, default="auto") # auto (T+1 by Paystack)
+    is_active = Column(Boolean, default=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    business = relationship("Business", back_populates="payment_config")
 
 class Property(Base):
     __tablename__ = "properties"

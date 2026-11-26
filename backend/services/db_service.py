@@ -917,6 +917,27 @@ async def save_lead(business_id: str, lead_data: dict):
                     logger.info(f"[DB] Linked {res.rowcount} orphaned appointments to lead {lead.id}")
                     await session.commit()
 
+            # Mirror into SME Workspace as sme_lead if SME module is active
+            try:
+                from services.sme_service import sme_service
+                await sme_service.create_sme_entity(
+                    db=session,
+                    org_id=business_id,
+                    code="sme_lead",
+                    display_label=lead.name or "Inbound Lead",
+                    attributes={
+                        "contact_name": lead.name,
+                        "email": lead.email,
+                        "phone": lead.phone,
+                        "stage": (lead.status or "NEW").upper(),
+                        "estimated_value": float(lead.value or 0),
+                        "source": lead.source or "inbound_chat",
+                        "conversation_id": lead.conversation_id
+                    }
+                )
+            except Exception as sme_lead_err:
+                logger.debug(f"[DB] Optional SME lead mirror: {sme_lead_err}")
+
             return lead.id
         except Exception as e:
             logger.error(f"Error saving lead: {e}")
@@ -1034,6 +1055,74 @@ async def get_leads(business_id: str):
                 
                 leads_with_scores.append(lead_dict)
             
+            # Also merge SME leads and customers from entities_v2 if present
+            try:
+                from database.models.dynamic_entity import EntityV2, EntityType
+                sme_type_stmt = select(EntityType.id, EntityType.code).where(
+                    EntityType.org_id.in_(possible_bids),
+                    EntityType.code.in_(["sme_lead", "sme_customer"])
+                )
+                sme_type_res = await session.execute(sme_type_stmt)
+                type_rows = sme_type_res.all()
+                if type_rows:
+                    type_id_map = {row[0]: row[1] for row in type_rows}
+                    ent_stmt = select(EntityV2).where(
+                        EntityV2.org_id.in_(possible_bids),
+                        EntityV2.entity_type_id.in_(list(type_id_map.keys()))
+                    ).order_by(desc(EntityV2.created_at))
+                    ent_res = await session.execute(ent_stmt)
+                    sme_ents = ent_res.scalars().all()
+                    
+                    known_emails = {str(l.email).lower() for l in leads if l.email}
+                    known_phones = {str(l.phone) for l in leads if l.phone}
+                    known_names = {str(l.name).lower() for l in leads if l.name}
+
+                    for ent in sme_ents:
+                        attrs = ent.attributes or {}
+                        code = type_id_map.get(ent.entity_type_id, "sme_lead")
+                        
+                        email = attrs.get("email")
+                        phone = attrs.get("phone")
+                        name = attrs.get("contact_name") or attrs.get("name") or ent.display_label
+
+                        if email and str(email).lower() in known_emails:
+                            continue
+                        if phone and str(phone) in known_phones:
+                            continue
+                        if name and str(name).lower() in known_names and (email or phone):
+                            continue
+
+                        is_customer = code == "sme_customer"
+                        status_str = (attrs.get("status") or attrs.get("stage") or ("contacted" if is_customer else "qualified")).lower()
+                        val = int(float(attrs.get("total_spend") if is_customer else (attrs.get("estimated_value") or 0)))
+
+                        tags = ["Customer" if is_customer else "SME Lead"]
+                        if attrs.get("status"):
+                            tags.append(str(attrs["status"]))
+                        if attrs.get("stage"):
+                            tags.append(str(attrs["stage"]))
+
+                        sme_dict = {
+                            "id": ent.id,
+                            "name": name,
+                            "contact": phone or email or name,
+                            "email": email,
+                            "phone": phone,
+                            "tags": tags,
+                            "value": val,
+                            "custom_fields": attrs,
+                            "conversation_id": attrs.get("conversation_id"),
+                            "created_at": ent.created_at,
+                            "status": status_str,
+                            "type": "customer" if is_customer else "lead"
+                        }
+                        score_data = crm_intelligence.calculate_lead_score(sme_dict)
+                        sme_dict["ai_score"] = score_data["score"]
+                        sme_dict["ai_tier"] = score_data["tier"]
+                        leads_with_scores.append(sme_dict)
+            except Exception as sme_e:
+                logger.warning(f"Error merging SME leads/customers: {sme_e}")
+
             return leads_with_scores
         except Exception as e:
             logger.error(f"Error fetching leads: {e}")

@@ -70,6 +70,7 @@ class ProvisionEnterpriseBusinessRequest(BaseModel):
     custom_limits: Optional[Dict[str, int]] = None
     custom_entitlements: Optional[List[Dict[str, Any]]] = None
     initial_tokens: int = 10000000
+    sme_preset: Optional[str] = "beauty"
 
 class LeadStatusUpdate(BaseModel):
     status: str
@@ -96,9 +97,9 @@ async def verify_super_admin(user_id: Optional[str] = None, request: Optional[Re
                     bid = payload.get("business_id") or ""
                     uid = payload.get("user_id") or payload.get("id") or email
                     if (
-                        role in ["super_admin", "admin", "owner"] or
+                        role == "super_admin" or
                         email in ["interacai.int@gmail.com", "mbasitisylva@gmail.com"] or
-                        bid in ["0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"]
+                        (bid in ["0bbd48c4-b066-435a-be3d-c095b55897c6", "INTERAC_HQ"] and role in ["super_admin", "admin"])
                     ):
                         return uid
                     if uid and await admin_service.check_is_super_admin(uid):
@@ -158,7 +159,8 @@ async def provision_enterprise_business(req: ProvisionEnterpriseBusinessRequest,
                 custom_modules=req.custom_modules,
                 custom_entitlements=req.custom_entitlements,
                 initial_tokens=req.initial_tokens,
-                admin_id=admin_id
+                admin_id=admin_id,
+                sme_preset=req.sme_preset
             )
             return {"status": "success", "data": result}
         except ValueError as ve:
@@ -226,12 +228,43 @@ async def update_business_status(business_id: str, update: StatusUpdate, request
     return {"status": "success"}
 
 @router.delete("/businesses/{business_id}")
-async def soft_delete_business(business_id: str, request: Request, user_id: Optional[str] = Query(None)):
+async def delete_business(
+    business_id: str, 
+    request: Request, 
+    user_id: Optional[str] = Query(None),
+    permanent: bool = Query(False),
+    reason: Optional[str] = Query(None)
+):
     admin_id = await verify_super_admin(user_id, request)
-    success = await admin_service.soft_delete_business(business_id, admin_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Business not found")
-    return {"status": "success"}
+    if permanent:
+        try:
+            success = await admin_service.hard_delete_business(business_id, admin_id, reason=reason)
+            if not success:
+                raise HTTPException(status_code=404, detail="Business not found")
+            return {"status": "success", "message": "Business permanently purged from database"}
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+    else:
+        success = await admin_service.soft_delete_business(business_id, admin_id, reason=reason)
+        if not success:
+            raise HTTPException(status_code=404, detail="Business not found")
+        return {"status": "success", "message": "Business soft-deleted"}
+
+@router.delete("/businesses/{business_id}/permanent")
+async def permanent_delete_business(
+    business_id: str, 
+    request: Request, 
+    user_id: Optional[str] = Query(None),
+    reason: Optional[str] = Query(None)
+):
+    admin_id = await verify_super_admin(user_id, request)
+    try:
+        success = await admin_service.hard_delete_business(business_id, admin_id, reason=reason)
+        if not success:
+            raise HTTPException(status_code=404, detail="Business not found")
+        return {"status": "success", "message": "Business permanently purged from database"}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
 
 @router.post("/businesses/{business_id}/reactivate")
 async def reactivate_business(business_id: str, request: Request, user_id: Optional[str] = Query(None)):

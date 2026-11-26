@@ -19,6 +19,7 @@ import Restaurant from './Hotels/Restaurant';
 import Inventory from './Hotels/Inventory';
 import Finance from './Hotels/Finance';
 import Analytics from './Hotels/Analytics';
+import SMEWorkspace from './SME/SMEWorkspace';
 
 export default function IndustryExtensionPage() {
   const { currentUser } = useAuth();
@@ -726,6 +727,11 @@ export default function IndustryExtensionPage() {
       </div>
     );
   };
+
+  // 0. 💼 SME & BUSINESS OPERATIONS MODULE SUITE
+  if (path.includes('/sme')) {
+    return <SMEWorkspace />;
+  }
 
   if (loading) return <div className="flex h-full items-center justify-center"><Loader message="Loading Operational Suite..." /></div>;
 

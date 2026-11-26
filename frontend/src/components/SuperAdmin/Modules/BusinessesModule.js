@@ -28,7 +28,11 @@ export default function BusinessesModule() {
     const [filterStatus, setFilterStatus] = useState('all');
     const [selectedBusiness, setSelectedBusiness] = useState(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showPermanentModal, setShowPermanentModal] = useState(false);
+    const [deleteType, setDeleteType] = useState('soft');
+    const [deleting, setDeleting] = useState(false);
     const [confirmName, setConfirmName] = useState('');
+    const [confirmPermanentName, setConfirmPermanentName] = useState('');
 
     // Provision Modal State
     const [showProvisionModal, setShowProvisionModal] = useState(false);
@@ -36,11 +40,12 @@ export default function BusinessesModule() {
     const [newBizName, setNewBizName] = useState('');
     const [newBizEmail, setNewBizEmail] = useState('');
     const [newBizPassword, setNewBizPassword] = useState('');
-    const [newBizIndustry, setNewBizIndustry] = useState('hotel');
+    const [newBizIndustry, setNewBizIndustry] = useState('general');
+    const [smePreset, setSmePreset] = useState('beauty');
     const [newBizSize, setNewBizSize] = useState('Medium');
     const [isPilot, setIsPilot] = useState(false);
     const [pilotDays, setPilotDays] = useState(30);
-    const [initialTokens, setInitialTokens] = useState(10000000);
+    const [initialTokens, setInitialTokens] = useState(5000);
     const [accountMgr, setAccountMgr] = useState('Victor Sylva');
 
     const getAuthHeaders = () => {
@@ -90,8 +95,11 @@ export default function BusinessesModule() {
 
     const handleSoftDelete = async () => {
         if (!selectedBusiness || confirmName !== selectedBusiness.name) return;
+        if (deleteType === 'permanent') {
+            return handlePermanentDelete(confirmName);
+        }
         const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
-
+        setDeleting(true);
         try {
             const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${selectedBusiness.business_id}?user_id=${encodeURIComponent(uid)}`, {
                 method: 'DELETE',
@@ -100,10 +108,46 @@ export default function BusinessesModule() {
             if (res.ok) {
                 setShowDeleteModal(false);
                 setConfirmName('');
+                setSelectedBusiness(null);
                 fetchBusinesses();
+            } else {
+                const data = await res.json();
+                alert(data.detail || 'Failed to deactivate business');
             }
         } catch (err) {
             console.error("Soft delete failed", err);
+            alert("Network error: Could not reach the server.");
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    const handlePermanentDelete = async (overrideName) => {
+        const checkName = overrideName || confirmPermanentName;
+        if (!selectedBusiness || checkName !== selectedBusiness.name) return;
+        const uid = currentUser?.id || currentUser?.uid || currentUser?.email || '';
+        setDeleting(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/super-admin/businesses/${selectedBusiness.business_id}?permanent=true&user_id=${encodeURIComponent(uid)}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setShowPermanentModal(false);
+                setShowDeleteModal(false);
+                setConfirmPermanentName('');
+                setConfirmName('');
+                setSelectedBusiness(null);
+                fetchBusinesses();
+            } else {
+                alert(data.detail || 'Failed to permanently delete business');
+            }
+        } catch (err) {
+            console.error("Permanent delete failed", err);
+            alert("Network error: Could not reach the server.");
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -136,6 +180,7 @@ export default function BusinessesModule() {
                     email: newBizEmail,
                     password: newBizPassword,
                     industry: newBizIndustry,
+                    sme_preset: newBizIndustry === 'sme' ? smePreset : undefined,
                     business_size: newBizSize,
                     commercial_status: isPilot ? 'pilot_active' : 'customer_active',
                     pilot_enabled: isPilot,
@@ -150,6 +195,8 @@ export default function BusinessesModule() {
                 setNewBizName('');
                 setNewBizEmail('');
                 setNewBizPassword('');
+                setNewBizIndustry('general');
+                setSmePreset('beauty');
                 fetchBusinesses();
                 alert('Enterprise tenant and custom entitlements provisioned successfully!');
             } else {
@@ -262,6 +309,9 @@ export default function BusinessesModule() {
                                         <td className="py-4 px-6">
                                             <div className="font-bold text-slate-900">{b.name}</div>
                                             <div className="text-xs text-slate-400 font-mono">{b.business_id}</div>
+                                            {b.owner_email && (
+                                                <div className="text-[11px] text-blue-600 font-medium mt-0.5">{b.owner_email}</div>
+                                            )}
                                         </td>
                                         <td className="py-4 px-6">
                                             <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg uppercase">
@@ -310,19 +360,35 @@ export default function BusinessesModule() {
                                                 )}
 
                                                 {b.is_deleted ? (
-                                                    <button
-                                                        onClick={() => reactivateBusiness(b.business_id)}
-                                                        className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold hover:bg-emerald-100"
-                                                    >
-                                                        Restore
-                                                    </button>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button
+                                                            onClick={() => reactivateBusiness(b.business_id)}
+                                                            className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold hover:bg-emerald-100 transition shadow-sm"
+                                                            title="Restore Business"
+                                                        >
+                                                            Restore
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setSelectedBusiness(b);
+                                                                setConfirmPermanentName('');
+                                                                setShowPermanentModal(true);
+                                                            }}
+                                                            className="p-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition shadow-sm"
+                                                            title="Permanently Delete (Purge from Database)"
+                                                        >
+                                                            <Trash2 size={15} />
+                                                        </button>
+                                                    </div>
                                                 ) : (
                                                     <button
                                                         onClick={() => {
                                                             setSelectedBusiness(b);
+                                                            setDeleteType('soft');
+                                                            setConfirmName('');
                                                             setShowDeleteModal(true);
                                                         }}
-                                                        className="p-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100"
+                                                        className="p-1.5 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 transition shadow-sm"
                                                         title="Delete Business"
                                                     >
                                                         <Trash2 size={15} />
@@ -395,15 +461,40 @@ export default function BusinessesModule() {
                                         onChange={(e) => setNewBizIndustry(e.target.value)}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-900"
                                     >
+                                        <option value="general">General Enterprise (Default)</option>
+                                        <option value="sme">SME & Business Operations</option>
                                         <option value="hotel">Hospitality & Hotels</option>
                                         <option value="hospital">Healthcare & Hospitals</option>
                                         <option value="retail">Retail & Supermarkets</option>
                                         <option value="school">Education & Schools</option>
                                         <option value="estate">Real Estate & Facility</option>
                                         <option value="manufacturing">Manufacturing</option>
-                                        <option value="general">General Enterprise</option>
                                     </select>
                                 </div>
+
+                                {newBizIndustry === 'sme' && (
+                                    <div className="col-span-2 p-3 bg-amber-50/60 border border-amber-200/80 rounded-2xl">
+                                        <label className="block text-xs font-bold text-amber-900 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                            <Sparkles size={14} className="text-amber-600" />
+                                            SME Industry Preset & Starter Pack
+                                        </label>
+                                        <select 
+                                            value={smePreset}
+                                            onChange={(e) => setSmePreset(e.target.value)}
+                                            className="w-full bg-white border border-amber-300 rounded-xl px-3.5 py-2 text-sm font-bold text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/20"
+                                        >
+                                            <option value="beauty">Beauty & Wellness (Salons, Spas, Skincare)</option>
+                                            <option value="fashion">Fashion & Apparel (Tailors, Boutiques, Designers)</option>
+                                            <option value="consulting">Professional Services & Consulting (Agencies, Freelancers)</option>
+                                            <option value="cleaning">Cleaning & Facilities Management</option>
+                                            <option value="printing">Printing, Branding & Media Production</option>
+                                            <option value="general_trade">General Trade, Wholesale & Distribution</option>
+                                        </select>
+                                        <p className="text-[11px] text-amber-700/80 mt-1 font-medium">
+                                            Automatically seeds domain products/services, appointment types, customer tags, and Argus KPI metrics.
+                                        </p>
+                                    </div>
+                                )}
 
                                 <div>
                                     <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Assigned Specialist</label>
@@ -412,6 +503,17 @@ export default function BusinessesModule() {
                                         value={accountMgr}
                                         onChange={(e) => setAccountMgr(e.target.value)}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-900"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">Initial AI Tokens</label>
+                                    <input 
+                                        type="number" 
+                                        value={initialTokens}
+                                        onChange={(e) => setInitialTokens(parseInt(e.target.value) || 0)}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-900"
+                                        placeholder="5000"
                                     />
                                 </div>
                             </div>
@@ -461,32 +563,166 @@ export default function BusinessesModule() {
                 </div>
             )}
 
-            {/* Delete Confirmation Modal */}
+            {/* Standard / Option-enabled Delete Confirmation Modal */}
             {showDeleteModal && selectedBusiness && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
-                    <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-100">
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Delete Business Tenant</h3>
-                        <p className="text-sm text-slate-500 mb-4">
-                            Are you sure you want to deactivate <strong className="text-slate-900">{selectedBusiness.name}</strong>?
-                            Type the business name to confirm:
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-in fade-in">
+                    <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-slate-100">
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">Delete Business Tenant</h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                            Managing tenant: <strong className="text-slate-900">{selectedBusiness.name}</strong> 
+                            {selectedBusiness.owner_email && <span className="font-mono text-slate-600"> ({selectedBusiness.owner_email})</span>}
                         </p>
-                        <input 
-                            type="text"
-                            placeholder={selectedBusiness.name}
-                            value={confirmName}
-                            onChange={(e) => setConfirmName(e.target.value)}
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-900 mb-4"
-                        />
+
+                        <div className="space-y-3 mb-5">
+                            <label 
+                                onClick={() => setDeleteType('soft')}
+                                className={`flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition ${
+                                    deleteType === 'soft' 
+                                        ? 'bg-amber-50/50 border-amber-300 ring-2 ring-amber-400/20' 
+                                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <input 
+                                    type="radio" 
+                                    name="deleteType" 
+                                    value="soft" 
+                                    checked={deleteType === 'soft'} 
+                                    onChange={() => setDeleteType('soft')}
+                                    className="mt-1 text-amber-600 focus:ring-amber-500" 
+                                />
+                                <div>
+                                    <div className="text-xs font-bold text-slate-900">Deactivate (Soft Delete) — Retain Data</div>
+                                    <div className="text-[11px] text-slate-500 leading-normal mt-0.5">
+                                        Disables access. Tenant data and users are preserved, allowing full restoration anytime. Note: email address remains linked to this tenant.
+                                    </div>
+                                </div>
+                            </label>
+
+                            <label 
+                                onClick={() => setDeleteType('permanent')}
+                                className={`flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition ${
+                                    deleteType === 'permanent' 
+                                        ? 'bg-rose-50/50 border-rose-300 ring-2 ring-rose-400/20' 
+                                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/60'
+                                }`}
+                            >
+                                <input 
+                                    type="radio" 
+                                    name="deleteType" 
+                                    value="permanent" 
+                                    checked={deleteType === 'permanent'} 
+                                    onChange={() => setDeleteType('permanent')}
+                                    className="mt-1 text-rose-600 focus:ring-rose-500" 
+                                />
+                                <div>
+                                    <div className="text-xs font-bold text-rose-700">Permanent Database Purge (Hard Delete)</div>
+                                    <div className="text-[11px] text-slate-500 leading-normal mt-0.5">
+                                        Completely deletes all records from the database and erases associated user accounts. Frees up the email address for immediate re-registration.
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-xs font-bold text-slate-600 mb-1">
+                                Type <strong className="text-slate-900 font-mono">"{selectedBusiness.name}"</strong> to confirm:
+                            </label>
+                            <input 
+                                type="text"
+                                placeholder={selectedBusiness.name}
+                                value={confirmName}
+                                onChange={(e) => setConfirmName(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                            />
+                        </div>
+
                         <div className="flex justify-end gap-3">
-                            <button onClick={() => setShowDeleteModal(false)} className="px-4 py-2 text-xs font-bold text-slate-600">
+                            <button 
+                                onClick={() => {
+                                    setShowDeleteModal(false);
+                                    setConfirmName('');
+                                }} 
+                                disabled={deleting}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                            >
                                 Cancel
                             </button>
                             <button 
                                 onClick={handleSoftDelete}
-                                disabled={confirmName !== selectedBusiness.name}
-                                className="px-4 py-2 text-xs font-bold bg-rose-600 text-white rounded-xl disabled:opacity-40"
+                                disabled={confirmName !== selectedBusiness.name || deleting}
+                                className={`px-4 py-2 text-xs font-bold text-white rounded-xl shadow-md disabled:opacity-40 transition flex items-center gap-1.5 ${
+                                    deleteType === 'permanent' 
+                                        ? 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20' 
+                                        : 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20'
+                                }`}
                             >
-                                Confirm Delete
+                                <Trash2 size={14} />
+                                {deleting ? 'Processing...' : deleteType === 'permanent' ? 'Purge Permanently' : 'Deactivate Tenant'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Dedicated Permanent Purge Confirmation Modal */}
+            {showPermanentModal && selectedBusiness && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4 animate-in fade-in">
+                    <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl border border-rose-100">
+                        <div className="flex items-center gap-3 pb-4 border-b border-rose-100 text-rose-600">
+                            <div className="p-2.5 bg-rose-50 rounded-2xl border border-rose-100">
+                                <Trash2 size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-black text-slate-900">Permanently Delete Account</h3>
+                                <p className="text-xs text-rose-600 font-semibold">Irreversible Database Purge</p>
+                            </div>
+                        </div>
+
+                        <div className="my-5 space-y-3">
+                            <div className="p-3.5 bg-rose-50/70 border border-rose-100 rounded-2xl text-xs text-rose-900 leading-relaxed">
+                                <p className="font-bold text-rose-950 mb-1">⚠️ Warning: This action cannot be undone.</p>
+                                <p>
+                                    This will permanently delete <strong className="font-black">{selectedBusiness.name}</strong>, 
+                                    all registered users {selectedBusiness.owner_email && <span>(including <strong className="font-mono">{selectedBusiness.owner_email}</strong>)</span>}, 
+                                    billing records, chat history, workflows, and settings directly from the database.
+                                </p>
+                                <p className="mt-2 font-bold text-emerald-800 bg-emerald-50 p-2 rounded-xl border border-emerald-100">
+                                    ✅ Once purged, the email address will immediately become available to register or provision a new account.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">
+                                    Type the business name <strong className="text-slate-900 font-mono">"{selectedBusiness.name}"</strong> to confirm:
+                                </label>
+                                <input 
+                                    type="text"
+                                    placeholder={selectedBusiness.name}
+                                    value={confirmPermanentName}
+                                    onChange={(e) => setConfirmPermanentName(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 pt-2">
+                            <button 
+                                onClick={() => {
+                                    setShowPermanentModal(false);
+                                    setConfirmPermanentName('');
+                                }} 
+                                disabled={deleting}
+                                className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={() => handlePermanentDelete()}
+                                disabled={confirmPermanentName !== selectedBusiness.name || deleting}
+                                className="px-5 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 disabled:opacity-40 transition flex items-center gap-1.5"
+                            >
+                                <Trash2 size={14} />
+                                {deleting ? 'Purging from Database...' : 'Permanently Delete Account'}
                             </button>
                         </div>
                     </div>

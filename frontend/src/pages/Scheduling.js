@@ -159,14 +159,14 @@ export default function Scheduling() {
                 key={apt.id} 
                 className="text-[9px] p-1 rounded border-l-2 truncate shadow-sm"
                 style={{ 
-                  backgroundColor: `${apt.appointment_type_color || '#3b82f6'}15`, 
-                  color: apt.appointment_type_color || '#3b82f6',
-                  borderColor: apt.appointment_type_color || '#3b82f6'
+                  backgroundColor: `${apt.appointment_type_color || apt.appointment_type?.color_code || '#3b82f6'}15`, 
+                  color: apt.appointment_type_color || apt.appointment_type?.color_code || '#3b82f6',
+                  borderColor: apt.appointment_type_color || apt.appointment_type?.color_code || '#3b82f6'
                 }}
-                title={`${apt.appointment_type_name} at ${new Date(apt.start_at).toLocaleTimeString()}`}
+                title={`${apt.appointment_type_name || apt.appointment_type?.name || apt.notes || 'Appointment'} at ${new Date(apt.start_at).toLocaleTimeString()}`}
               >
                 <span className="font-bold">{new Date(apt.start_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="ml-1 opacity-80">{apt.appointment_type_name}</span>
+                <span className="ml-1 opacity-80">{apt.appointment_type_name || apt.appointment_type?.name || apt.notes || 'Appointment'}</span>
               </div>
             ))}
           </div>
@@ -317,12 +317,12 @@ export default function Scheduling() {
                                 style={{
                                     top: `${top}px`,
                                     height: `${height}px`,
-                                    backgroundColor: `${apt.appointment_type_color || '#3b82f6'}F0`,
+                                    backgroundColor: `${apt.appointment_type_color || apt.appointment_type?.color_code || '#3b82f6'}F0`,
                                     color: 'white',
                                     borderColor: 'rgba(0,0,0,0.1)'
                                 }}
                             >
-                                <div className="font-bold truncate">{apt.appointment_type_name}</div>
+                                <div className="font-bold truncate">{apt.appointment_type_name || apt.appointment_type?.name || apt.notes || 'Appointment'}</div>
                                 <div className="text-[9px] opacity-90">{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                             </div>
                         );

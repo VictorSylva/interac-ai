@@ -16,6 +16,7 @@ from modules.government import GovernmentModule
 from modules.manufacturing import ManufacturingModule
 from modules.education import EducationModule
 from modules.agriculture import AgricultureModule
+from modules.sme import SMEModule
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 async def load_all_industry_modules(default_org_id: str = "default_business") -> None:
     """Instantiates and registers all platform Industry Modules."""
     modules = [
+        SMEModule(),
         RetailModule(),
         BibleTranslationModule(),
         EstateModule(),

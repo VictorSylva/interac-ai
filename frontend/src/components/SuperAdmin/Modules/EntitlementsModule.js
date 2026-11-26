@@ -37,6 +37,65 @@ export default function EntitlementsModule() {
 
   // Editable local state of entitlements
   const [localEntitlements, setLocalEntitlements] = useState([]);
+  const [applyingPreset, setApplyingPreset] = useState(false);
+  const [activeSmePreset, setActiveSmePreset] = useState(null);
+
+  const SME_PRESETS = [
+    {
+      id: 'beauty',
+      name: 'Beauty & Wellness',
+      tagline: 'Salons, Spas & Skincare',
+      desc: 'Enables Appointments, Services, Retail Inventory, VIP tracking & No-Show Argus Intelligence.',
+      icon: '✨',
+      badge: 'Appointments + Retail',
+      accent: 'border-pink-300 bg-pink-50/50 hover:bg-pink-50 text-pink-950'
+    },
+    {
+      id: 'fashion',
+      name: 'Fashion & Apparel',
+      tagline: 'Boutiques, Designers & Tailors',
+      desc: 'Enables Inventory, Measurements, Multi-channel Orders, Dispatch tracking & Stockout Alerts.',
+      icon: '👗',
+      badge: 'Inventory + Orders',
+      accent: 'border-purple-300 bg-purple-50/50 hover:bg-purple-50 text-purple-950'
+    },
+    {
+      id: 'consulting',
+      name: 'Professional Services',
+      tagline: 'Advisory, Agencies & Freelancers',
+      desc: 'Enables Project Milestones, Proposals, Retainer Invoicing, Consultations & Debtor Overdue Alerts.',
+      icon: '💼',
+      badge: 'Retainers + Invoices',
+      accent: 'border-blue-300 bg-blue-50/50 hover:bg-blue-50 text-blue-950'
+    },
+    {
+      id: 'cleaning',
+      name: 'Cleaning & Facilities',
+      tagline: 'Janitorial, Homes & Post-Construction',
+      desc: 'Enables Site Visits, Recurring Cleanings, Equipment Inventory, Invoicing & SLA tracking.',
+      icon: '🧹',
+      badge: 'Recurring + Janitorial',
+      accent: 'border-teal-300 bg-teal-50/50 hover:bg-teal-50 text-teal-950'
+    },
+    {
+      id: 'printing',
+      name: 'Printing & Media',
+      tagline: 'Signage, Merch & Brand Packaging',
+      desc: 'Enables Custom Job Costing, Proof Approvals, Raw Material Stock, Quotes & Job Stages.',
+      icon: '🖨️',
+      badge: 'Custom Jobs + Media',
+      accent: 'border-amber-300 bg-amber-50/50 hover:bg-amber-50 text-amber-950'
+    },
+    {
+      id: 'general_trade',
+      name: 'General Trade & FMCG',
+      tagline: 'Wholesale, Merchants & Distribution',
+      desc: 'Enables Bulk Price Tiers, Low Stock Alerts, Supplier POs, Waybills & Revenue Realization.',
+      icon: '📦',
+      badge: 'Wholesale + FMCG',
+      accent: 'border-slate-300 bg-slate-50/70 hover:bg-slate-100 text-slate-950'
+    }
+  ];
 
   const getAuthHeaders = () => {
     const token = currentUser?.token || currentUser?.access_token || localStorage.getItem('token');
@@ -143,6 +202,35 @@ export default function EntitlementsModule() {
       }
       return item;
     }));
+  };
+
+  const handleApplyPreset = async (presetId) => {
+    if (!selectedBid) return;
+    setApplyingPreset(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/sme/preset`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          org_id: selectedBid,
+          preset_key: presetId
+        })
+      });
+      if (res.ok) {
+        setActiveSmePreset(presetId);
+        const presetObj = SME_PRESETS.find(p => p.id === presetId);
+        alert(`Successfully applied the ${presetObj?.name || presetId} preset to ${tenantBundle?.name || 'the tenant'}! Operating entities, product catalogs, customer tags, and Argus metrics have been configured.`);
+        loadBusinessEntitlements(selectedBid);
+      } else {
+        const err = await res.json();
+        alert(`Failed to apply preset: ${err.detail || 'Server error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error applying SME preset.');
+    } finally {
+      setApplyingPreset(false);
+    }
   };
 
   const handleSaveEntitlements = async () => {
@@ -306,6 +394,70 @@ export default function EntitlementsModule() {
               {(tenantBundle.usage?.tokens_total_available || 0).toLocaleString()}
             </div>
             <div className="text-xs text-slate-400 mt-0.5">Quota Cap: {(tenantBundle.usage?.tokens_limit || 0).toLocaleString()}</div>
+          </div>
+        </div>
+      )}
+
+      {/* SME Industry Presets & Starter Pack Selector */}
+      {tenantBundle && (
+        <div className="bg-gradient-to-br from-amber-500/10 via-amber-50/50 to-orange-500/10 rounded-3xl border border-amber-200/80 p-6 mb-8 shadow-sm">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-amber-600 text-white rounded-lg shadow-sm">
+                  <Sparkles size={16} />
+                </div>
+                <h3 className="text-base font-black text-slate-900">SME Operating Archetypes & Industry Presets</h3>
+                <span className="px-2.5 py-0.5 bg-amber-100 text-amber-900 text-[10px] font-extrabold rounded-full uppercase tracking-wider">
+                  Module SME
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1">
+                Instantly provision industry-specific operating models, dynamic entity definitions, catalog items, and Argus attention metrics for <strong>{tenantBundle.name}</strong>.
+              </p>
+            </div>
+            {applyingPreset && (
+              <span className="text-xs font-bold text-amber-700 animate-pulse flex items-center gap-1.5">
+                <RefreshCw size={14} className="animate-spin" /> Applying Archetype Preset...
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {SME_PRESETS.map((p) => {
+              return (
+                <div 
+                  key={p.id}
+                  className={`p-4 rounded-2xl border transition-all relative flex flex-col justify-between ${p.accent}`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{p.icon}</span>
+                        <span className="font-bold text-sm text-slate-900">{p.name}</span>
+                      </div>
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-white/80 border border-slate-200 text-slate-700">
+                        {p.badge}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] font-semibold text-amber-800 mb-2">{p.tagline}</div>
+                    <p className="text-[11px] text-slate-600 leading-relaxed mb-4">{p.desc}</p>
+                  </div>
+
+                  <div className="pt-3 border-t border-black/5 flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">{p.id}</span>
+                    <button
+                      onClick={() => handleApplyPreset(p.id)}
+                      disabled={applyingPreset}
+                      className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      <span>Apply Preset</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -28,6 +28,7 @@ INDUSTRY_TO_MODULE_MAP = {
     "hospital": "module_hospital",
     "retail": "module_retail",
     "school": "module_education",
+    "education": "module_education",
     "church": "module_church",
     "manufacturing": "module_manufacturing",
     "government": "module_government",
@@ -36,7 +37,16 @@ INDUSTRY_TO_MODULE_MAP = {
     "restaurant": "module_hotels",
     "agriculture": "module_agriculture",
     "irs": "module_nigeria_irs",
-    "bible_translation": "module_bible_translation"
+    "bible_translation": "module_bible_translation",
+    "sme": "module_sme",
+    "sme & business operations": "module_sme",
+    "general sme": "module_sme",
+    "general_sme": "module_sme",
+    "general": None,
+    "general enterprise": None,
+    "general_enterprise": None,
+    "saas": None,
+    "other": None
 }
 
 async def provision_tenant(
@@ -55,8 +65,9 @@ async def provision_tenant(
     custom_limits: Optional[Dict[str, int]] = None,
     custom_modules: Optional[List[str]] = None,
     custom_entitlements: Optional[List[Dict[str, Any]]] = None,
-    initial_tokens: int = 10000000,
-    admin_id: Optional[str] = None
+    initial_tokens: int = 5000,
+    admin_id: Optional[str] = None,
+    sme_preset: Optional[str] = "beauty"
 ) -> Dict[str, Any]:
     """
     Executes the Audit-First ProvisionTenant pipeline end-to-end.
@@ -64,14 +75,23 @@ async def provision_tenant(
     """
     business_id = str(uuid.uuid4())
     user_id = str(uuid.uuid4())
-    industry_clean = (industry or "hotel").lower().strip()
+    industry_clean = (industry or "general").lower().strip()
 
     logger.info(f"[PROVISIONING] Starting enterprise pipeline for {business_name} ({email}) - Industry: {industry_clean}")
 
     # 0. Check for existing user with this email
     stmt_existing = select(User).where(User.email.ilike(email.strip()))
     res_existing = await db_session.execute(stmt_existing)
-    if res_existing.scalar_one_or_none():
+    existing_u = res_existing.scalar_one_or_none()
+    if existing_u:
+        stmt_biz = select(Business).where(Business.id == existing_u.business_id)
+        biz_res = await db_session.execute(stmt_biz)
+        b_record = biz_res.scalar_one_or_none()
+        if b_record and b_record.is_deleted:
+            raise ValueError(
+                f"A user with email '{email}' exists under deactivated business '{b_record.name}'. "
+                f"To reuse this email, please permanently delete the deactivated account from Super Admin."
+            )
         raise ValueError(f"A user with email '{email}' already exists.")
 
     # 1. Create Business Tenant
@@ -156,10 +176,18 @@ async def provision_tenant(
     )
     db_session.add(comm_profile)
 
-    # 4. Create Token Wallet
+    # 4. Resolve Initial Token Balance & Create Token Wallet
+    resolved_initial_tokens = initial_tokens
+    if custom_entitlements:
+        for cent in custom_entitlements:
+            if cent.get("key") == "ai.tokens" and cent.get("limit") is not None:
+                resolved_initial_tokens = int(float(cent["limit"]))
+    elif custom_limits and "ai.tokens" in custom_limits:
+        resolved_initial_tokens = int(float(custom_limits["ai.tokens"]))
+
     new_wallet = TokenWallet(
         business_id=business_id,
-        sub_balance=initial_tokens,
+        sub_balance=resolved_initial_tokens,
         payg_balance=0
     )
     db_session.add(new_wallet)
@@ -177,7 +205,11 @@ async def provision_tenant(
     db_session.add(new_user)
 
     # 6. Default Settings Profile
-    modules_to_install = custom_modules if custom_modules else [INDUSTRY_TO_MODULE_MAP.get(industry_clean, "module_hotels")]
+    if custom_modules is not None:
+        modules_to_install = [m for m in custom_modules if m]
+    else:
+        target_mod = INDUSTRY_TO_MODULE_MAP.get(industry_clean)
+        modules_to_install = [target_mod] if target_mod else []
     
     settings = BusinessSettings(
         business_id=business_id,
@@ -191,11 +223,15 @@ async def provision_tenant(
     db_session.add(settings)
 
     # 7. Seed Default Capabilities & Entitlements for Industry
+    limits_to_seed = custom_limits.copy() if custom_limits else {}
+    if "ai.tokens" not in limits_to_seed:
+        limits_to_seed["ai.tokens"] = resolved_initial_tokens
+
     await entitlement_service.provision_default_entitlements_for_industry(
         session=db_session,
         business_id=business_id,
         industry=industry_clean,
-        custom_limits=custom_limits,
+        custom_limits=limits_to_seed,
         admin_id=admin_id
     )
 
@@ -222,6 +258,8 @@ async def provision_tenant(
 
     # 8. Install Selected Industry Modules
     for mod_id in modules_to_install:
+        if not mod_id:
+            continue
         module = module_registry.get_module(mod_id)
         if module:
             logger.info(f"[PROVISIONING] Installing module '{mod_id}' for '{business_id}'")
@@ -250,6 +288,16 @@ async def provision_tenant(
             
             settings.departments = list(set(settings.departments + list(module_departments)))
             await db_session.flush()
+
+    # Apply SME industry preset if module_sme is provisioned
+    if "module_sme" in modules_to_install:
+        try:
+            from services.sme_service import sme_service
+            logger.info(f"[PROVISIONING] Applying SME preset '{sme_preset}' for business '{business_id}'")
+            await sme_service.apply_preset(db_session, business_id, sme_preset or "beauty")
+            await db_session.flush()
+        except Exception as sme_err:
+            logger.error(f"[PROVISIONING] Failed to apply SME preset '{sme_preset}': {sme_err}")
 
     # 9. Industry Entities: No mock/dummy entities seeded. Rooms and inventory must be created cleanly by the hotel management.
     stmt_et = select(EntityType).where(EntityType.org_id == business_id)
