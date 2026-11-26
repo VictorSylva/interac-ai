@@ -19,7 +19,6 @@ cd frontend
 Copy-Item .env.staging .env.production.local -Force
 npm run build
 $buildResult = $LASTEXITCODE
-Remove-Item .env.production.local -Force
 if ($buildResult -ne 0) { Write-Host "Build failed!" -ForegroundColor Red; exit 1 }
 
 # 3. Deploy to Firebase
