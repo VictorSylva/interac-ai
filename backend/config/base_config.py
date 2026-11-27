@@ -23,7 +23,7 @@ class BaseConfig(BaseModel):
     OPENROUTER_TITLE: str = Field(default="Interact AI Platform")
     
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = Field(default="gemini-pro")
+    GEMINI_MODEL: str = Field(default="gemini-1.5-flash")
     
     # WhatsApp Settings
     WHATSAPP_VERIFY_TOKEN: Optional[str] = None
