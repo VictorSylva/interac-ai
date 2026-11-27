@@ -25,14 +25,14 @@ from config import config
 
 # --- CONFIGURATION & ENV LOADING ---
 # Provider Keys
-OPENROUTER_API_KEY = config.OPENROUTER_API_KEY
-OPENROUTER_MODEL = config.OPENROUTER_MODEL
+OPENROUTER_API_KEY = (config.OPENROUTER_API_KEY or "").strip() or None
+OPENROUTER_MODEL = (config.OPENROUTER_MODEL or "deepseek/deepseek-chat").strip()
 # OpenRouter strictly requires Referer and Title headers to prevent key invalidation.
-OPENROUTER_REFERER = config.OPENROUTER_REFERER
-OPENROUTER_TITLE = config.OPENROUTER_TITLE
+OPENROUTER_REFERER = (config.OPENROUTER_REFERER or "https://interacai.com").strip()
+OPENROUTER_TITLE = (config.OPENROUTER_TITLE or "Interact AI Platform").strip()
 
-GEMINI_API_KEY = config.GEMINI_API_KEY
-GEMINI_MODEL = config.GEMINI_MODEL
+GEMINI_API_KEY = (config.GEMINI_API_KEY or "").strip() or None
+GEMINI_MODEL = (config.GEMINI_MODEL or "gemini-3.8-flash").strip()
 
 # Structured Logging Config
 class AIServiceLogger:
@@ -51,16 +51,16 @@ class AIServiceLogger:
             error_msg += f" | Status: {status_code}"
         logger.error(error_msg)
 
-# Determine primary provider at startup
-if GEMINI_API_KEY:
-    PRIMARY_PROVIDER = "gemini"
-    logger.info(f"AI Service Initialized with Provider: Google Gemini ({GEMINI_MODEL})")
-elif OPENROUTER_API_KEY:
+# Determine primary provider at startup (prioritize OpenRouter)
+if OPENROUTER_API_KEY:
     PRIMARY_PROVIDER = "openrouter"
     logger.info(f"AI Service Initialized with Provider: OpenRouter ({OPENROUTER_MODEL})")
+elif GEMINI_API_KEY:
+    PRIMARY_PROVIDER = "gemini"
+    logger.info(f"AI Service Initialized with Provider: Google Gemini ({GEMINI_MODEL})")
 else:
     PRIMARY_PROVIDER = None
-    logger.warning("No AI provider (GEMINI_API_KEY or OPENROUTER_API_KEY) found in environment.")
+    logger.warning("No AI provider (OPENROUTER_API_KEY or GEMINI_API_KEY) found in environment.")
 
 from services.db_service import log_prompt_execution
 

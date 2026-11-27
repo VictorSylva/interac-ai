@@ -30,14 +30,18 @@ services:
         value: "https://interac-ai.web.app,https://interac-ai.firebaseapp.com,https://interacai.com,https://www.interacai.com,https://interacai-staging.firebaseapp.com,http://localhost:3000"
 
       # AI Provider (OpenRouter & Gemini)
-      - key: GEMINI_MODEL
-        value: "gemini-3.8-flash"
-      - key: GEMINI_API_KEY
-        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
         value: "deepseek/deepseek-chat"
+      - key: OPENROUTER_REFERER
+        value: "https://interac-ai.web.app"
+      - key: OPENROUTER_TITLE
+        value: "Interact AI Platform (Staging)"
+      - key: GEMINI_MODEL
+        value: "gemini-3.8-flash"
+      - key: GEMINI_API_KEY
+        sync: false
 
       # Email (Resend HTTP API)
       - key: RESEND_API_KEY
