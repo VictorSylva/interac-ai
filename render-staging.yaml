@@ -29,7 +29,11 @@ services:
       - key: ALLOWED_ORIGINS
         value: "https://interac-ai.web.app,https://interac-ai.firebaseapp.com,https://interacai.com,https://www.interacai.com,https://interacai-staging.firebaseapp.com,http://localhost:3000"
 
-      # AI Provider (OpenRouter)
+      # AI Provider (OpenRouter & Gemini)
+      - key: GEMINI_MODEL
+        value: "gemini-3.8-flash"
+      - key: GEMINI_API_KEY
+        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
